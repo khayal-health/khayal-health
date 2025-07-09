@@ -5,9 +5,15 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+# Configure npm for better network handling
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 3 && \
+    npm config set timeout 600000
+
 # Only copy package files first for better caching
 COPY KhayalHealthcare-Frontend/package*.json ./
-RUN npm ci --max-old-space-size=4096
+RUN npm install --legacy-peer-deps --max-old-space-size=4096
 
 # Now copy the rest of the frontend src
 COPY KhayalHealthcare-Frontend/ ./
@@ -46,12 +52,6 @@ RUN mkdir -p static
 
 # Copy frontend build from previous stage
 COPY --from=frontend-builder /app/frontend/dist/. ./static/
-
-# ========================
-# (Optional) Non-root user for extra security
-# ========================
-# RUN adduser --disabled-password --gecos "" appuser && chown -R appuser /app
-# USER appuser
 
 # ========================
 # Entrypoint script
