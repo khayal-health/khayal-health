@@ -5,15 +5,13 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Configure npm for better network handling (remove invalid timeout option)
-RUN npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    npm config set fetch-retries 3 && \
-    npm config set network-timeout 600000
-
 # Only copy package files first for better caching
 COPY KhayalHealthcare-Frontend/package*.json ./
-RUN npm install --legacy-peer-deps --max-old-space-size=4096
+
+# Use npm install with retry logic - no invalid config options
+RUN npm install --legacy-peer-deps --max-old-space-size=4096 || \
+    npm install --legacy-peer-deps --max-old-space-size=4096 || \
+    npm install --legacy-peer-deps --max-old-space-size=4096
 
 # Now copy the rest of the frontend src
 COPY KhayalHealthcare-Frontend/ ./
