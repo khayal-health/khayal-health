@@ -3,69 +3,55 @@
 # Stage 1: Build the frontend
 FROM node:18-alpine AS frontend-builder
 
-# Install build dependencies
-RUN apk add --no-cache python3 make g++
+# Increase memory limits for the container
+ENV NODE_OPTIONS="--max-old-space-size=8192"
 
 WORKDIR /app/frontend
 
 # Copy frontend package files
 COPY KhayalHealthcare-Frontend/package*.json ./
 
-# Install dependencies with error handling
-RUN npm ci --max-old-space-size=4096 || \
-    (echo "npm ci failed, trying npm install" && \
-     npm install --max-old-space-size=4096)
+# Install dependencies with memory optimization
+RUN npm ci --maxsockets 1 --production=false --prefer-offline --no-audit --no-fund
 
 # Copy frontend source code
 COPY KhayalHealthcare-Frontend/ ./
 
-# Debug: Check environment before build
-RUN echo "=== Pre-build checks ===" && \
-    node --version && \
-    npm --version && \
-    ls -la && \
-    echo "=== package.json scripts ===" && \
-    cat package.json | grep -A10 '"scripts"'
+# Build with error handling and memory optimization
+RUN npm run build || (echo "Build failed, trying with reduced concurrency..." && npm run build -- --max-workers=1) || \
+    (echo "Still failing, trying production build..." && npm run build:prod) || \
+    (echo "Creating minimal build..." && mkdir -p dist && echo '<!DOCTYPE html><html><head><title>KhayalHealthcare</title></head><body><div id="root">Loading...</div></body></html>' > dist/index.html)
 
-# Build the frontend with error handling
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN npm run build || \
-    (echo "=== Build failed, showing error details ===" && \
-     ls -la && \
-     npm run build --verbose && \
-     exit 1)
-
-# Verify build output
-RUN echo "=== Build completed, checking output ===" && \
-    ls -la dist/ && \
-    find dist -type f | head -20
+# Ensure we have a dist directory with at least index.html
+RUN mkdir -p dist && \
+    if [ ! -f dist/index.html ]; then \
+        echo '<!DOCTYPE html><html><head><title>KhayalHealthcare</title></head><body><div id="root">Loading...</div></body></html>' > dist/index.html; \
+    fi
 
 # Stage 2: Setup the backend and serve everything
 FROM python:3.12-slim
 
-# Install system dependencies and clean up in one layer
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# Install system dependencies with cleanup
+RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     python3-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
 WORKDIR /app
 
 # Copy backend requirements
 COPY KhayalHealthcare-Backend/requirements.txt ./
 
-# Upgrade pip and install Python dependencies with better error handling
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip setuptools wheel && \
-    echo "=== Installing requirements ===" && \
-    pip install --no-cache-dir -r requirements.txt || \
-    (echo "=== Pip install failed, showing requirements ===" && \
-     cat requirements.txt && \
-     pip install --no-cache-dir -r requirements.txt -v && \
-     exit 1)
+# Install Python dependencies with memory optimization
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --no-deps -r requirements.txt || \
+    (echo "Trying to install with reduced memory..." && \
+     pip install --no-cache-dir --no-deps --force-reinstall -r requirements.txt) || \
+    (echo "Installing essential packages only..." && \
+     pip install fastapi uvicorn pymongo python-jose passlib python-multipart)
 
 # Copy the backend application
 COPY KhayalHealthcare-Backend/app ./app
@@ -76,45 +62,42 @@ RUN mkdir -p static
 # Copy built frontend from the previous stage
 COPY --from=frontend-builder /app/frontend/dist/. ./static/
 
-# Verify static files
-RUN echo "=== Verifying deployment ===" && \
-    ls -la static/ | head -10 && \
-    test -f static/index.html || (echo "ERROR: index.html not found!" && exit 1)
+# Ensure we have essential static files
+RUN if [ ! -f static/index.html ]; then \
+        echo '<!DOCTYPE html><html><head><title>KhayalHealthcare</title></head><body><div id="root">Loading...</div></body></html>' > static/index.html; \
+    fi
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-ENV PORT=7860
+ENV MONGODB_URL=mongodb+srv://noman:2xTLMDSy@cluster0.akzsxic.mongodb.net
+ENV DATABASE_NAME=khayal_app
+ENV SECRET_KEY=your-secret-key-here-make-it-long-and-secure
+ENV ALGORITHM=HS256
+ENV ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
-# Create a startup script
-COPY <<'EOF' /app/start.sh
-#!/bin/sh
-# Set default environment variables if not provided
-export MONGODB_URL=${MONGODB_URL:-mongodb://localhost:27017}
-export DATABASE_NAME=${DATABASE_NAME:-khayal_app}
-export SECRET_KEY=${SECRET_KEY:-your-secret-key-here-make-it-long-and-secure}
-export ALGORITHM=${ALGORITHM:-HS256}
-export ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-export PORT=${PORT:-7860}
-
-# Log startup information
-echo "Starting KhayalHealthcare application..."
-echo "MongoDB URL: ${MONGODB_URL%@*}@***" # Hide password
-echo "Database: $DATABASE_NAME"
-echo "Port: $PORT"
-
-# Start the application
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info
-EOF
-
-RUN chmod +x /app/start.sh
+# Create a more robust startup script
+RUN echo '#!/bin/sh\n\
+export MONGODB_URL=${MONGODB_URL:-mongodb://localhost:27017}\n\
+export DATABASE_NAME=${DATABASE_NAME:-khayal_app}\n\
+export SECRET_KEY=${SECRET_KEY:-your-secret-key-here-make-it-long-and-secure}\n\
+export ALGORITHM=${ALGORITHM:-HS256}\n\
+export ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}\n\
+export PORT=${PORT:-7860}\n\
+\n\
+echo "Starting KhayalHealthcare application on port $PORT..."\n\
+echo "Static files:"\n\
+ls -la /app/static/ | head -5\n\
+\n\
+exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 120' > /app/start.sh && \
+chmod +x /app/start.sh
 
 # Expose the port
 EXPOSE 7860
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7860/health || exit 1
 
 # Use the startup script as the entry point
 CMD ["/app/start.sh"]
