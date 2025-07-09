@@ -5,22 +5,17 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app
 
-# A .dockerignore file is crucial to prevent local node_modules, .env, etc.,
-# from being copied into the image.
-# Copy only package.json and lock files first to leverage Docker cache.
+# A .dockerignore file is crucial.
 COPY KhayalHealthcare-Frontend/package*.json ./
 
-# Use npm ci for faster, more reliable builds in CI/CD environments.
-# The memory flag helps prevent crashes on large projects.
+# Use npm ci for faster, more reliable builds.
 RUN npm ci --max-old-space-size=4096
 
 # Copy the rest of the frontend source code
 COPY KhayalHealthcare-Frontend/ ./
 
-# Set environment variables for the build process.
-# CI=true is the default in many environments and can cause warnings to fail the build.
-# Setting it to false can prevent this.
-# Disabling source maps reduces memory usage and build time significantly.
+# Set environment variables to prevent warnings from failing the build
+# and to reduce memory usage by not generating source maps.
 ENV CI=false
 ENV GENERATE_SOURCEMAP=false
 ENV NODE_OPTIONS="--max-old-space-size=4096"
@@ -29,7 +24,23 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 # =========================================================================
-# Stage 2: Build the Python Backend and Serve the Application
+# Stage 2: Build Python Dependencies
+# Use a full image with build tools to compile packages into wheels.
+# =========================================================================
+FROM python:3.12-bookworm AS backend-builder
+
+WORKDIR /app
+
+# Install pip wheel tool
+RUN pip install --upgrade pip wheel
+
+# Copy requirements and build wheels. This compiles any C extensions.
+COPY KhayalHealthcare-Backend/requirements.txt ./
+RUN pip wheel -r requirements.txt -w /wheels
+
+# =========================================================================
+# Stage 3: Create the Final Production Image
+# Use a lightweight slim image and install pre-built packages.
 # =========================================================================
 FROM python:3.12-slim
 
@@ -39,23 +50,20 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Install build dependencies, install Python packages, then remove the build
-# dependencies in the same layer to reduce final image size.
+# Copy requirements file and the pre-compiled wheels from the backend-builder stage
 COPY KhayalHealthcare-Backend/requirements.txt ./
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc g++ python3-dev && \
-    pip install --no-cache-dir -r requirements.txt && \
-    apt-get purge -y --auto-remove gcc g++ python3-dev && \
-    rm -rf /var/lib/apt/lists/*
+COPY --from=backend-builder /wheels /wheels
 
-# Copy the backend application code.
-# Assuming your main.py is inside KhayalHealthcare-Backend/app/
-# This copies the contents of that directory to /app in the container.
+# Install the Python dependencies from the local wheels.
+# This does NOT require gcc/g++ and is very fast and memory-efficient.
+# --no-index prevents pip from going to the internet (PyPI).
+# --find-links tells pip to look in the /wheels directory for packages.
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
+
+# Copy the backend application code
 COPY KhayalHealthcare-Backend/app/ ./
 
 # Copy the built frontend assets from the 'frontend-builder' stage
-# The source path is /app/dist because that's the output of `npm run build`
-# inside the `frontend-builder` stage's WORKDIR.
 COPY --from=frontend-builder /app/dist ./static
 
 # --- SECURITY WARNING ---
@@ -69,7 +77,6 @@ ENV ALGORITHM=HS256
 ENV ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
 # Create a startup script for better flexibility
-# This allows setting a default PORT and overriding it via environment variables.
 RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'set -e' >> /app/start.sh && \
     echo 'PORT=${PORT:-7860}' >> /app/start.sh && \
@@ -84,5 +91,6 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
 # Expose the default port
 EXPOSE 7860
 
-# Run the application
+# Run the application using the startup script
+# Assumes your FastAPI app instance is named 'app' in '/app/main.py'
 CMD ["/app/start.sh"]
