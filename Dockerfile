@@ -16,8 +16,8 @@ COPY KhayalHealthcare-Frontend/ ./
 # Build frontend
 RUN npm run build
 
-# Final stage - Python runtime
-FROM python:3.11-slim
+# Python dependencies stage
+FROM python:3.11-slim AS python-deps
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -27,17 +27,31 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy backend requirements first (for better caching)
+# Copy backend requirements
 COPY KhayalHealthcare-Backend/requirements.txt ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with memory optimization
+RUN pip install --no-cache-dir --no-compile -r requirements.txt
+
+# Final stage - Python runtime
+FROM python:3.11-slim
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy installed packages from python-deps stage
+COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=python-deps /usr/local/bin /usr/local/bin
 
 # Copy backend application code
 COPY KhayalHealthcare-Backend/ ./
 
 # Copy built frontend files from the builder stage to static directory
-# The backend expects static files in a "static" directory
 COPY --from=frontend-builder /app/frontend/dist ./static
 
 # Create uploads directory structure
