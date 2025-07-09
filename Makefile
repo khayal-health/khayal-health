@@ -22,6 +22,8 @@ ifeq ($(OS),Windows_NT)
     FIND_PYCACHE = for /d /r . %%d in (__pycache__) do @if exist "%%d" $(RM_RF) "%%d" $(NULL_REDIRECT)
     FIND_PYC = for /r . %%f in (*.pyc) do @if exist "%%f" $(RM_F) "%%f" $(NULL_REDIRECT)
     FIND_PYO = for /r . %%f in (*.pyo) do @if exist "%%f" $(RM_F) "%%f" $(NULL_REDIRECT)
+    FIND_BAK = for /r . %%f in (*.bak) do @if exist "%%f" $(RM_F) "%%f" $(NULL_REDIRECT)
+    FIND_LOG = for /r . %%f in (*.log) do @if exist "%%f" $(RM_F) "%%f" $(NULL_REDIRECT)
     CHECK_VENV = if exist "$(BACKEND_DIR)$(PATH_SEP)venv" echo Virtual environment exists || echo Virtual environment not found
     # Colors (limited support on Windows CMD)
     GREEN = 
@@ -52,6 +54,8 @@ else
     FIND_PYCACHE = find . -type d -name "__pycache__" -exec $(RM_RF) {} + $(NULL_REDIRECT) || true
     FIND_PYC = find . -type f -name "*.pyc" -delete $(NULL_REDIRECT) || true
     FIND_PYO = find . -type f -name "*.pyo" -delete $(NULL_REDIRECT) || true
+    FIND_BAK = find . -type f -name "*.bak" -delete $(NULL_REDIRECT) || true
+    FIND_LOG = find . -type f -name "*.log" -delete $(NULL_REDIRECT) || true
     CHECK_VENV = [ -d "$(BACKEND_DIR)$(PATH_SEP)venv" ] && echo "Virtual environment exists" || echo "Virtual environment not found"
     # Colors for Unix-like systems
     GREEN = \033[0;32m
@@ -73,6 +77,8 @@ help:
 	@echo "  $(YELLOW)make install-frontend$(NC)  - Install frontend dependencies"
 	@echo "  $(YELLOW)make clean$(NC)             - Clean cache files"
 	@echo "  $(YELLOW)make clean-python$(NC)      - Clean Python temporary files"
+	@echo "  $(YELLOW)make clean-python-cache$(NC) - Clean only Python cache files (__pycache__, .pyc, .pyo)"
+	@echo "  $(YELLOW)make clean-temp$(NC)        - Clean temporary files (*.bak, *.log)"
 	@echo "  $(YELLOW)make clean-all$(NC)         - Clean everything including node_modules"
 	@echo "  $(YELLOW)make venv$(NC)              - Create Python virtual environment"
 	@echo "  $(YELLOW)make venv-install$(NC)      - Install backend deps in virtual environment"
@@ -148,6 +154,32 @@ else
 	@cd $(FRONTEND_DIR) && $(RM_RF) node_modules/.cache $(NULL_REDIRECT)
 endif
 	@echo "$(GREEN)Cache files cleaned!$(NC)"
+
+# Clean only Python cache files
+clean-python-cache:
+	@echo "$(YELLOW)Cleaning Python cache files...$(NC)"
+ifeq ($(OS),Windows_NT)
+	@$(FIND_PYCACHE)
+	@$(FIND_PYC)
+	@$(FIND_PYO)
+else
+	@$(FIND_PYCACHE)
+	@$(FIND_PYC)
+	@$(FIND_PYO)
+endif
+	@echo "$(GREEN)Python cache files cleaned!$(NC)"
+
+# Clean temporary files
+clean-temp:
+	@echo "$(YELLOW)Cleaning temporary files...$(NC)"
+ifeq ($(OS),Windows_NT)
+	@$(FIND_BAK)
+	@$(FIND_LOG)
+else
+	@$(FIND_BAK)
+	@$(FIND_LOG)
+endif
+	@echo "$(GREEN)Temporary files cleaned!$(NC)"
 
 # Clean Python temporary files comprehensively
 clean-python:
@@ -267,4 +299,4 @@ info:
 	@echo "Backend Directory: $(BACKEND_DIR)"
 	@echo "Frontend Directory: $(FRONTEND_DIR)"
 
-.PHONY: help init backend frontend install install-backend install-frontend clean clean-python clean-all stop venv venv-install backend-venv status check-venv test dev info
+.PHONY: help init backend frontend install install-backend install-frontend clean clean-python clean-python-cache clean-temp clean-all stop venv venv-install backend-venv status check-venv test dev info
