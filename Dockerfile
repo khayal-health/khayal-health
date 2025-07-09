@@ -1,106 +1,88 @@
-# Multi-stage Dockerfile for KhayalHealthcare
-
-# Stage 1: Build the frontend
+# =========================================================================
+# Stage 1: Build the React/Vue/Angular Frontend
+# =========================================================================
 FROM node:18-alpine AS frontend-builder
-
-WORKDIR /app/frontend
-
-# Copy frontend package files
-COPY KhayalHealthcare-Frontend/package*.json ./
-
-# Install dependencies with increased memory limit
-RUN npm ci --max-old-space-size=4096
-
-# Copy frontend source code AND public folder
-COPY KhayalHealthcare-Frontend/ ./
-
-# Build the frontend with increased memory limit
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN npm run build
-
-# Debug: List built files
-RUN echo "=== Listing dist directory ===" && \
-    ls -la dist/ && \
-    echo "=== Listing dist root files ===" && \
-    ls -la dist/*.* || true && \
-    echo "=== Checking for favicon ===" && \
-    ls -la dist/favicon.svg || echo "favicon.svg not found" && \
-    echo "=== Listing all dist contents ===" && \
-    find dist -type f -name "*" | head -20
-
-# Stage 2: Setup the backend and serve everything
-FROM python:3.12-slim
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    python3-dev \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy backend requirements
+# A .dockerignore file is crucial to prevent local node_modules, .env, etc.,
+# from being copied into the image.
+# Copy only package.json and lock files first to leverage Docker cache.
+COPY KhayalHealthcare-Frontend/package*.json ./
+
+# Use npm ci for faster, more reliable builds in CI/CD environments.
+# The memory flag helps prevent crashes on large projects.
+RUN npm ci --max-old-space-size=4096
+
+# Copy the rest of the frontend source code
+COPY KhayalHealthcare-Frontend/ ./
+
+# Set environment variables for the build process.
+# CI=true is the default in many environments and can cause warnings to fail the build.
+# Setting it to false can prevent this.
+# Disabling source maps reduces memory usage and build time significantly.
+ENV CI=false
+ENV GENERATE_SOURCEMAP=false
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
+# Run the build command
+RUN npm run build
+
+# =========================================================================
+# Stage 2: Build the Python Backend and Serve the Application
+# =========================================================================
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Set environment variables to prevent Python from writing .pyc files
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Install build dependencies, install Python packages, then remove the build
+# dependencies in the same layer to reduce final image size.
 COPY KhayalHealthcare-Backend/requirements.txt ./
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc g++ python3-dev && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apt-get purge -y --auto-remove gcc g++ python3-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install Python dependencies
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy the backend application code.
+# Assuming your main.py is inside KhayalHealthcare-Backend/app/
+# This copies the contents of that directory to /app in the container.
+COPY KhayalHealthcare-Backend/app/ ./
 
-# Copy the backend application
-COPY KhayalHealthcare-Backend/app ./app
+# Copy the built frontend assets from the 'frontend-builder' stage
+# The source path is /app/dist because that's the output of `npm run build`
+# inside the `frontend-builder` stage's WORKDIR.
+COPY --from=frontend-builder /app/dist ./static
 
-# Create static directory for frontend files
-RUN mkdir -p static
-
-# Copy built frontend from the previous stage - IMPORTANT: preserve structure
-COPY --from=frontend-builder /app/frontend/dist/. ./static/
-
-# Debug: Verify static files were copied correctly
-RUN echo "=== Verifying static files ===" && \
-    ls -la static/ && \
-    echo "=== Checking for favicon in static ===" && \
-    ls -la static/favicon.svg || echo "favicon.svg not found in static" && \
-    echo "=== Checking for index.html ===" && \
-    ls -la static/index.html || echo "index.html not found" && \
-    echo "=== Listing all static files ===" && \
-    find static -type f | head -20
-
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
+# --- SECURITY WARNING ---
+# Avoid hardcoding secrets. These are set as defaults in start.sh
+# and should be overridden at runtime.
+# Example: docker run -e SECRET_KEY='my_new_super_secret_key' ...
 ENV MONGODB_URL=mongodb+srv://noman:2xTLMDSy@cluster0.akzsxic.mongodb.net
 ENV DATABASE_NAME=khayal_app
 ENV SECRET_KEY=your-secret-key-here-make-it-long-and-secure
 ENV ALGORITHM=HS256
 ENV ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
-# Create a startup script
-RUN echo '#!/bin/sh\n\
-# Set default environment variables if not provided\n\
-export MONGODB_URL=${MONGODB_URL:-mongodb://localhost:27017}\n\
-export DATABASE_NAME=${DATABASE_NAME:-khayal_app}\n\
-export SECRET_KEY=${SECRET_KEY:-your-secret-key-here-make-it-long-and-secure}\n\
-export ALGORITHM=${ALGORITHM:-HS256}\n\
-export ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}\n\
-export PORT=${PORT:-7860}\n\
-\n\
-# Log startup information\n\
-echo "Starting KhayalHealthcare application..."\n\
-echo "MongoDB URL: $MONGODB_URL"\n\
-echo "Database: $DATABASE_NAME"\n\
-echo "Port: $PORT"\n\
-echo "Checking static files:"\n\
-ls -la /app/static/ | head -10\n\
-echo "Checking for favicon:"\n\
-ls -la /app/static/favicon.svg || echo "favicon.svg not found"\n\
-\n\
-# Start the application\n\
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info' > /app/start.sh && \
-chmod +x /app/start.sh
+# Create a startup script for better flexibility
+# This allows setting a default PORT and overriding it via environment variables.
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'set -e' >> /app/start.sh && \
+    echo 'PORT=${PORT:-7860}' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'echo "--- Starting KhayalHealthcare Application on port $PORT ---"' >> /app/start.sh && \
+    echo 'echo "Verifying static files:"' >> /app/start.sh && \
+    echo 'ls -lA /app/static' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'exec uvicorn main:app --host 0.0.0.0 --port $PORT --log-level info' >> /app/start.sh && \
+    chmod +x /app/start.sh
 
-# Expose the port
+# Expose the default port
 EXPOSE 7860
 
-# Use the startup script as the entry point
+# Run the application
 CMD ["/app/start.sh"]
