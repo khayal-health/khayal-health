@@ -5,8 +5,13 @@ WORKDIR /app/frontend
 # Copy frontend package files
 COPY KhayalHealthcare-Frontend/package*.json ./
 
+# Install ALL dependencies including devDependencies (needed for TypeScript)
+RUN npm ci
+
+# Then copy the rest of the frontend code
 COPY KhayalHealthcare-Frontend/ ./
 
+# Now build
 RUN npm run build
 
 FROM python:3.12-slim
