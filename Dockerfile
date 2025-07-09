@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for KhayalHealthcare
 
 # Stage 1: Build the frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend_builder
 
 WORKDIR /app/frontend
 
@@ -15,7 +15,7 @@ RUN npm ci --max-old-space-size=4096
 COPY KhayalHealthcare-Frontend/ ./
 
 # Build the frontend with increased memory limit
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # Debug: List built files
