@@ -62,7 +62,7 @@ export class RequestCareVisitService {
     this.user = user;
   }
 
-  Component = ({}: RequestCareVisitProps = {}) => {
+  Component = ({ onSuccess }: RequestCareVisitProps = {}) => {
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [pendingFormData, setPendingFormData] = useState<z.infer<
       typeof insertCareVisitRequestSchema
@@ -111,8 +111,8 @@ export class RequestCareVisitService {
         // Reset form
         careForm.reset();
 
-        // DON'T call onSuccess to prevent navigation
-        // onSuccess?.();
+        // Call onSuccess to switch tabs
+        onSuccess?.();
       },
       onError: (error: Error) => {
         toast({
