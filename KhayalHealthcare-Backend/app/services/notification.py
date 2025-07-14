@@ -39,7 +39,7 @@ def send_notification(to_email, subject, body):
 
 
 def send_message(number, message):
-    greenAPI = API.GreenAPI("7105212467", "f1898374b63f43038f3cdce8e43a9f54feb2122cf08b4c7e97")
+    greenAPI = API.GreenAPI("7105273045", "4b9a2e248a1a446bb36a8daf97f71a300c3660e2d7e0457486")
     
     # Format Pakistani phone number
     formatted_number = format_pakistani_number(number)
