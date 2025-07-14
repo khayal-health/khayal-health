@@ -176,7 +176,7 @@ async def create_order(
     current_user: User = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
-    """Create new order"""
+    """Create new order - notifications will be sent automatically"""
     order_service = OrderService(db)
     meal_service = MealService(db)
     user_service = UserService(db)
@@ -192,9 +192,10 @@ async def create_order(
                     detail=f"Invalid {field} format: {value}"
                 )
         
+        # Create order - notifications will be sent automatically in the service
         order = await order_service.create_order(order_data)
 
-        # Get related data
+        # Get related data for response
         meal = await meal_service.get_meal_by_id(str(order.meal_id))
         chef = await user_service.get_user_by_id(str(order.chef_id))
 
@@ -225,7 +226,7 @@ async def update_order_status(
     current_user: User = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
-    """Update order status"""
+    """Update order status - notifications will be sent automatically"""
     try:
         # Validate order_id is a valid ObjectId
         if not ObjectId.is_valid(order_id):
@@ -235,8 +236,29 @@ async def update_order_status(
             )
             
         order_service = OrderService(db)
+        
+        # For chef users, verify they own the order
+        if current_user.role == UserRole.CHEF:
+            order = await order_service.get_order_by_id(order_id)
+            if not order:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Order not found"
+                )
+            if str(order.chef_id) != str(current_user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only update your own orders"
+                )
+        
+        # Update status - notifications will be sent automatically in the service
         await order_service.update_order_status(order_id, status_update.status)
-        return {"message": "Order status updated successfully"}
+        
+        return {
+            "message": "Order status updated successfully",
+            "order_id": order_id,
+            "new_status": status_update.status
+        }
         
     except HTTPException:
         raise
