@@ -23,7 +23,7 @@ import {
   Hash,
   DollarSign,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 
 interface OrdersTabProps {
   orders: any[];
@@ -51,9 +51,25 @@ export default function OrdersTab({
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
-  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [updatingOrderIds, setUpdatingOrderIds] = useState<Set<string>>(
+    new Set()
+  );
 
-  // Mutation: update order status
+  // Helper function to check if an order is being updated
+  const isOrderUpdating = useCallback(
+    (orderId: string) => {
+      return updatingOrderIds.has(orderId);
+    },
+    [updatingOrderIds]
+  );
+
+  // Helper function to check if any order is being updated
+  const isAnyOrderUpdating = useMemo(() => {
+    return updatingOrderIds.size > 0;
+  }, [updatingOrderIds]);
+
+  // --- REFACTORED MUTATION ---
+  // This mutation now uses `onMutate` and `onSettled` for more robust state management.
   const updateOrderStatusMutation = useMutation({
     mutationFn: async ({
       orderId,
@@ -62,7 +78,7 @@ export default function OrdersTab({
       orderId: string;
       status: string;
     }) => {
-      setUpdatingOrderId(orderId);
+      // The mutation function is now only responsible for the API call.
       const res = await apiRequest(
         "PATCH",
         API_ENDPOINTS.ORDER_STATUS(orderId),
@@ -70,7 +86,13 @@ export default function OrdersTab({
       );
       return res.json();
     },
-    onSuccess: (variables) => {
+    // `onMutate` is called synchronously before `mutationFn`.
+    // This immediately sets the updating state, disabling buttons before the API call begins.
+    onMutate: async (variables) => {
+      setUpdatingOrderIds((prev) => new Set(prev).add(variables.orderId));
+    },
+    onSuccess: (data, variables) => {
+      // Invalidate queries to refetch the latest order data.
       queryClient.invalidateQueries({
         queryKey: ["chef-orders", user._id],
       });
@@ -91,10 +113,8 @@ export default function OrdersTab({
           "Order status updated successfully",
         duration: 3000,
       });
-
-      setUpdatingOrderId(null);
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
       console.error("Update order status error:", error);
       toast({
         title: "Error",
@@ -102,9 +122,29 @@ export default function OrdersTab({
         variant: "destructive",
         duration: 4000,
       });
-      setUpdatingOrderId(null);
+    },
+    // `onSettled` is called after the mutation is finished, on both success and error.
+    // This is the most reliable place to clean up the updating state.
+    onSettled: (data, error, variables) => {
+      setUpdatingOrderIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(variables.orderId);
+        return newSet;
+      });
     },
   });
+
+  // This handler now acts as a safeguard. The primary prevention is the `disabled`
+  // prop on the buttons, which is now more effective due to the `onMutate` change.
+  const handleStatusUpdate = useCallback(
+    (orderId: string, status: string) => {
+      if (isAnyOrderUpdating) {
+        return; // Prevents new mutations if one is already in progress.
+      }
+      updateOrderStatusMutation.mutate({ orderId, status });
+    },
+    [isAnyOrderUpdating, updateOrderStatusMutation]
+  );
 
   // Calculate order statistics
   const orderStats = useMemo(() => {
@@ -175,7 +215,7 @@ export default function OrdersTab({
         );
         const customerName = order.subscriber?.name?.toLowerCase() || "";
         const mealName = meal?.name?.toLowerCase() || "";
-        const orderId = (order._id || order.id).slice(-6).toLowerCase();
+        const orderId = (order._id || order.id).toLowerCase();
 
         return (
           customerName.includes(query) ||
@@ -302,7 +342,7 @@ export default function OrdersTab({
 
   const renderActionButtons = (order: any) => {
     const orderId = order._id || order.id;
-    const isThisOrderUpdating = updatingOrderId === orderId;
+    const isThisOrderUpdating = isOrderUpdating(orderId);
 
     switch (order.status) {
       case "pending":
@@ -312,13 +352,8 @@ export default function OrdersTab({
               variant="default"
               size="sm"
               className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={() =>
-                updateOrderStatusMutation.mutate({
-                  orderId,
-                  status: "confirmed",
-                })
-              }
-              disabled={isThisOrderUpdating}
+              onClick={() => handleStatusUpdate(orderId, "confirmed")}
+              disabled={isAnyOrderUpdating}
             >
               {isThisOrderUpdating ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -331,13 +366,8 @@ export default function OrdersTab({
               variant="destructive"
               size="sm"
               className="flex-1"
-              onClick={() =>
-                updateOrderStatusMutation.mutate({
-                  orderId,
-                  status: "cancelled",
-                })
-              }
-              disabled={isThisOrderUpdating}
+              onClick={() => handleStatusUpdate(orderId, "cancelled")}
+              disabled={isAnyOrderUpdating}
             >
               {isThisOrderUpdating ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -355,13 +385,8 @@ export default function OrdersTab({
               variant="default"
               size="sm"
               className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-              onClick={() =>
-                updateOrderStatusMutation.mutate({
-                  orderId,
-                  status: "preparing",
-                })
-              }
-              disabled={isThisOrderUpdating}
+              onClick={() => handleStatusUpdate(orderId, "preparing")}
+              disabled={isAnyOrderUpdating}
             >
               {isThisOrderUpdating ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -374,13 +399,8 @@ export default function OrdersTab({
               variant="outline"
               size="sm"
               className="w-full text-rose-600 border-rose-300 hover:bg-rose-50"
-              onClick={() =>
-                updateOrderStatusMutation.mutate({
-                  orderId,
-                  status: "cancelled",
-                })
-              }
-              disabled={isThisOrderUpdating}
+              onClick={() => handleStatusUpdate(orderId, "cancelled")}
+              disabled={isAnyOrderUpdating}
             >
               {isThisOrderUpdating ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -398,13 +418,8 @@ export default function OrdersTab({
               variant="default"
               size="sm"
               className="w-full bg-orange-600 hover:bg-orange-700 text-white"
-              onClick={() =>
-                updateOrderStatusMutation.mutate({
-                  orderId,
-                  status: "ready",
-                })
-              }
-              disabled={isThisOrderUpdating}
+              onClick={() => handleStatusUpdate(orderId, "ready")}
+              disabled={isAnyOrderUpdating}
             >
               {isThisOrderUpdating ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -417,13 +432,8 @@ export default function OrdersTab({
               variant="outline"
               size="sm"
               className="w-full text-rose-600 border-rose-300 hover:bg-rose-50"
-              onClick={() =>
-                updateOrderStatusMutation.mutate({
-                  orderId,
-                  status: "cancelled",
-                })
-              }
-              disabled={isThisOrderUpdating}
+              onClick={() => handleStatusUpdate(orderId, "cancelled")}
+              disabled={isAnyOrderUpdating}
             >
               {isThisOrderUpdating ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -440,13 +450,8 @@ export default function OrdersTab({
             variant="default"
             size="sm"
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() =>
-              updateOrderStatusMutation.mutate({
-                orderId,
-                status: "delivered",
-              })
-            }
-            disabled={isThisOrderUpdating}
+            onClick={() => handleStatusUpdate(orderId, "delivered")}
+            disabled={isAnyOrderUpdating}
           >
             {isThisOrderUpdating ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -648,16 +653,32 @@ export default function OrdersTab({
             const meal = meals?.find(
               (m: any) => m._id === order.meal_id || m.id === order.meal_id
             );
+            const orderId = order._id || order.id;
+            const isThisOrderUpdating = isOrderUpdating(orderId);
 
             return (
               <Card
-                key={order._id || order.id}
-                className={`relative overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 ${
+                key={orderId}
+                className={`relative overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 transition-all duration-300 ${
                   order.status === "pending"
                     ? "ring-2 ring-amber-200 dark:ring-amber-800"
                     : ""
-                } ${order.status === "cancelled" ? "opacity-75" : ""}`}
+                } ${order.status === "cancelled" ? "opacity-75" : ""} ${
+                  isThisOrderUpdating ? "pointer-events-none" : ""
+                }`}
               >
+                {/* Loading Overlay */}
+                {isThisOrderUpdating && (
+                  <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-20 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Updating order status...
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Status Badge */}
                 <div className="absolute top-4 right-4 z-10">
                   <div
@@ -678,7 +699,14 @@ export default function OrdersTab({
                 <CardHeader className="pb-3">
                   <div className="space-y-2">
                     <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white pr-24">
-                      Order #{(order._id || order.id).slice(-6)}
+                      <div className="space-y-1">
+                        <span className="text-sm text-muted-foreground font-normal">
+                          Order ID
+                        </span>
+                        <div className="font-mono text-base break-all">
+                          {orderId}
+                        </div>
+                      </div>
                     </CardTitle>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />
@@ -751,7 +779,7 @@ export default function OrdersTab({
                           {order.subscriber?.name || "Unknown Customer"}
                         </p>
                         {order.subscriber?.email && (
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs text-muted-foreground mt-1 break-all">
                             {order.subscriber.email}
                           </p>
                         )}
