@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useForm } from "react-hook-form";
 import type { UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertUserSchema, UserRole } from "@/types/schema";
+import { UserRole } from "@/types/schema";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -392,7 +392,6 @@ const PasswordStrengthIndicator = ({ password }: { password: string }) => {
   ];
 
   const passedChecks = checks.filter((check) => check.test).length;
-  const strength = passedChecks / checks.length;
 
   if (!password) return null;
 
@@ -950,7 +949,6 @@ export default function AuthPage() {
   const handleRegister = async (data: RegisterFormData) => {
     try {
       const response = await apiRequest("POST", API_ENDPOINTS.REGISTER, data);
-      const result = await response.json();
 
       if (response.ok) {
         setVerificationState({
