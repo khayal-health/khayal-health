@@ -975,31 +975,50 @@ export default function AuthPage() {
     }
   };
 
-  // Handle verification
+  // Handle verification - FIXED VERSION
   const handleVerification = async (code: string) => {
     if (!verificationState) return;
 
     try {
-      const response = await apiRequest(
-        "POST",
-        API_ENDPOINTS.VERIFY_REGISTRATION,
-        {
-          email: verificationState.email,
-          phone: verificationState.phone,
-          code,
-          type: verificationState.type,
-        }
-      );
+      if (verificationState.type === "registration") {
+        // Handle registration verification
+        const response = await apiRequest(
+          "POST",
+          API_ENDPOINTS.VERIFY_REGISTRATION,
+          {
+            email: verificationState.email,
+            phone: verificationState.phone,
+            code,
+            type: verificationState.type,
+          }
+        );
 
-      if (response.ok) {
-        toast({
-          title: "Verification successful",
-          description: "Your account has been created. Please login.",
+        if (response.ok) {
+          toast({
+            title: "Verification successful",
+            description: "Your account has been created. Please login.",
+          });
+          setShowVerification(false);
+          setVerificationState(null);
+          setActiveTab("login");
+          registerForm.reset();
+        } else {
+          const error = await response.json();
+          throw new Error(error.detail || "Verification failed");
+        }
+      } else if (verificationState.type === "password_reset") {
+        // For password reset, just validate the code format
+        if (code.length !== 6 || !/^\d+$/.test(code)) {
+          throw new Error("Invalid code format");
+        }
+
+        // Store the code and transition to password reset form
+        setVerificationState({
+          ...verificationState,
+          code: code,
         });
         setShowVerification(false);
-        setVerificationState(null);
-        setActiveTab("login");
-        registerForm.reset();
+        setShowPasswordReset(true);
       }
     } catch (error: any) {
       throw error;
@@ -1059,7 +1078,7 @@ export default function AuthPage() {
 
   // Handle password reset
   const handlePasswordReset = async (newPassword: string) => {
-    if (!verificationState) return;
+    if (!verificationState || !verificationState.code) return;
 
     try {
       const response = await apiRequest("POST", API_ENDPOINTS.RESET_PASSWORD, {
@@ -1078,6 +1097,11 @@ export default function AuthPage() {
         setShowPasswordReset(false);
         setVerificationState(null);
         setActiveTab("login");
+        // Clear the login form
+        loginForm.reset();
+      } else {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to reset password");
       }
     } catch (error: any) {
       toast({
@@ -1085,6 +1109,7 @@ export default function AuthPage() {
         description: error.message || "Could not reset password",
         variant: "destructive",
       });
+      throw error;
     }
   };
 
@@ -1123,8 +1148,35 @@ export default function AuthPage() {
     );
   }
 
-  // Show password reset form
-  if (showPasswordReset) {
+  // Show password reset form - FIXED VERSION
+  // Show password reset form after verification
+  if (
+    showPasswordReset &&
+    verificationState?.email &&
+    verificationState?.phone &&
+    verificationState?.code // Make sure we have the code
+  ) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50 p-4">
+        <div className="w-full max-w-md">
+          <PasswordResetForm
+            onRequestReset={handlePasswordResetRequest}
+            onResetPassword={handlePasswordReset}
+            onBack={() => {
+              setShowPasswordReset(false);
+              setVerificationState(null);
+            }}
+            email={verificationState.email}
+            phone={verificationState.phone}
+            showNewPasswordForm={true}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Show initial password reset form
+  if (showPasswordReset && !verificationState) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50 p-4">
         <div className="w-full max-w-md">
@@ -1132,8 +1184,6 @@ export default function AuthPage() {
             onRequestReset={handlePasswordResetRequest}
             onResetPassword={handlePasswordReset}
             onBack={() => setShowPasswordReset(false)}
-            email={verificationState?.email}
-            phone={verificationState?.phone}
           />
         </div>
       </div>

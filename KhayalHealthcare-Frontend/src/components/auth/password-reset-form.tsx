@@ -51,6 +51,7 @@ interface PasswordResetFormProps {
   onBack: () => void;
   email?: string;
   phone?: string;
+  showNewPasswordForm?: boolean; // Add this prop
 }
 
 export function PasswordResetForm({
@@ -59,10 +60,11 @@ export function PasswordResetForm({
   onBack,
   email,
   phone,
+  showNewPasswordForm = false, // Default to false
 }: PasswordResetFormProps) {
   const [isRequesting, setIsRequesting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(showNewPasswordForm);
 
   const requestForm = useForm<{
     identifier: string;
@@ -108,13 +110,21 @@ export function PasswordResetForm({
     }
   };
 
-  if (showNewPassword && email && phone) {
+  // Show new password form if we have email/phone and either showNewPassword is true
+  // or showNewPasswordForm prop is true
+  if ((showNewPassword || showNewPasswordForm) && email && phone) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Set New Password</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="text-sm text-gray-600 mb-4">
+            <p>Reset password for:</p>
+            <p className="font-medium mt-1">📧 {email}</p>
+            <p className="font-medium">📱 {phone}</p>
+          </div>
+
           <Form {...passwordForm}>
             <form
               onSubmit={passwordForm.handleSubmit(handleResetPassword)}
