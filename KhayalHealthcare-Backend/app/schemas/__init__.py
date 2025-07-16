@@ -53,6 +53,18 @@ from app.schemas.subscription_plan import (
 )
 
 
+from app.schemas.verification import (
+    VerificationCodeCreate,
+    VerificationCodeVerify,
+    ResendCodeRequest,
+    PasswordResetRequest,
+    PasswordResetVerify,
+    VerificationCodeResponse
+)
+
+
+
+
 __all__ = [
     # User
     "UserCreate", "UserLogin", "UserResponse", "UserUpdate", "Token", "TokenData",
@@ -89,4 +101,7 @@ __all__ = [
     "SubscriptionPlanUpdate", 
     "SubscriptionPlanResponse",
     "SubscriptionPlanVisibilityUpdate",
+
+    "VerificationCodeCreate", "VerificationCodeVerify", "ResendCodeRequest",
+    "PasswordResetRequest", "PasswordResetVerify", "VerificationCodeResponse",
 ]

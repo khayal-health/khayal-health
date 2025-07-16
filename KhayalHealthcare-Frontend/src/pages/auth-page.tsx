@@ -27,6 +27,11 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { VerificationForm } from "@/components/auth/verification-form";
+import { PasswordResetForm } from "@/components/auth/password-reset-form";
+import { apiRequest } from "@/lib/queryClient";
+import { API_ENDPOINTS } from "@/lib/config";
+import { useToast } from "@/hooks/use-toast";
 
 // Pakistani cities list organized by province
 const PAKISTANI_CITIES = [
@@ -266,6 +271,15 @@ interface RegisterFormProps {
   registerForm: UseFormReturn<RegisterFormData>;
   registerMutation: RegisterMutation;
   selectedRole: UserRole;
+}
+
+// Add these new types
+interface VerificationState {
+  email: string;
+  phone: string;
+  type: "registration" | "password_reset";
+  registrationData?: any;
+  code?: string;
 }
 
 // Background decorations component
@@ -887,6 +901,11 @@ export default function AuthPage() {
   const { user, loginMutation, registerMutation, showAds } = useAuth();
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
+  const [showVerification, setShowVerification] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [verificationState, setVerificationState] =
+    useState<VerificationState | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (user && !showAds) {
@@ -899,13 +918,6 @@ export default function AuthPage() {
       setLocation("/");
     }
   }, [user, setLocation]);
-
-  useEffect(() => {
-    if (registerMutation.isSuccess) {
-      setActiveTab("login");
-      registerForm.reset();
-    }
-  }, [registerMutation.isSuccess]);
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginFormSchema),
@@ -933,6 +945,200 @@ export default function AuthPage() {
   });
 
   const selectedRole = registerForm.watch("role");
+
+  // Handle registration with verification
+  const handleRegister = async (data: RegisterFormData) => {
+    try {
+      const response = await apiRequest("POST", API_ENDPOINTS.REGISTER, data);
+      const result = await response.json();
+
+      if (response.ok) {
+        setVerificationState({
+          email: data.email,
+          phone: data.phone,
+          type: "registration",
+          registrationData: data,
+        });
+        setShowVerification(true);
+        toast({
+          title: "Registration initiated",
+          description:
+            "Please check your email and WhatsApp for the verification code",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Registration failed",
+        description: error.message || "Could not register",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle verification
+  const handleVerification = async (code: string) => {
+    if (!verificationState) return;
+
+    try {
+      const response = await apiRequest(
+        "POST",
+        API_ENDPOINTS.VERIFY_REGISTRATION,
+        {
+          email: verificationState.email,
+          phone: verificationState.phone,
+          code,
+          type: verificationState.type,
+        }
+      );
+
+      if (response.ok) {
+        toast({
+          title: "Verification successful",
+          description: "Your account has been created. Please login.",
+        });
+        setShowVerification(false);
+        setVerificationState(null);
+        setActiveTab("login");
+        registerForm.reset();
+      }
+    } catch (error: any) {
+      throw error;
+    }
+  };
+
+  // Handle resend code
+  const handleResendCode = async () => {
+    if (!verificationState) return;
+
+    const response = await apiRequest("POST", API_ENDPOINTS.RESEND_CODE, {
+      email: verificationState.email,
+      phone: verificationState.phone,
+      type: verificationState.type,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Failed to resend code");
+    }
+  };
+
+  // Handle password reset request
+  const handlePasswordResetRequest = async (
+    identifier: string,
+    method: "email" | "whatsapp"
+  ) => {
+    try {
+      const response = await apiRequest("POST", API_ENDPOINTS.FORGOT_PASSWORD, {
+        identifier,
+        method,
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setVerificationState({
+          email: result.email,
+          phone: result.phone,
+          type: "password_reset",
+        });
+        setShowPasswordReset(false);
+        setShowVerification(true);
+        toast({
+          title: "Reset code sent",
+          description: `Verification code sent via ${method}`,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Request failed",
+        description: error.message || "Could not process request",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle password reset
+  const handlePasswordReset = async (newPassword: string) => {
+    if (!verificationState) return;
+
+    try {
+      const response = await apiRequest("POST", API_ENDPOINTS.RESET_PASSWORD, {
+        email: verificationState.email,
+        phone: verificationState.phone,
+        code: verificationState.code,
+        new_password: newPassword,
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Password reset successful",
+          description: "You can now login with your new password",
+        });
+        setShowVerification(false);
+        setShowPasswordReset(false);
+        setVerificationState(null);
+        setActiveTab("login");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Reset failed",
+        description: error.message || "Could not reset password",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Update register form to use handleRegister
+  const RegisterMutation = {
+    mutate: handleRegister,
+    isPending: false,
+    isSuccess: registerMutation.isSuccess,
+  };
+
+  useEffect(() => {
+    if (RegisterMutation.isSuccess) {
+      setActiveTab("login");
+      registerForm.reset();
+    }
+  }, [RegisterMutation.isSuccess]);
+
+  // Show verification form if needed
+  if (showVerification && verificationState) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50 p-4">
+        <div className="w-full max-w-md">
+          <VerificationForm
+            email={verificationState.email}
+            phone={verificationState.phone}
+            type={verificationState.type}
+            onVerify={handleVerification}
+            onResend={handleResendCode}
+            onBack={() => {
+              setShowVerification(false);
+              setVerificationState(null);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Show password reset form
+  if (showPasswordReset) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50 p-4">
+        <div className="w-full max-w-md">
+          <PasswordResetForm
+            onRequestReset={handlePasswordResetRequest}
+            onResetPassword={handlePasswordReset}
+            onBack={() => setShowPasswordReset(false)}
+            email={verificationState?.email}
+            phone={verificationState?.phone}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -977,12 +1183,21 @@ export default function AuthPage() {
                     loginForm={loginForm}
                     loginMutation={loginMutation}
                   />
+                  <div className="mt-4 text-center">
+                    <Button
+                      variant="link"
+                      onClick={() => setShowPasswordReset(true)}
+                      className="text-sm text-teal-600 hover:text-teal-700"
+                    >
+                      Forgot your password?
+                    </Button>
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="register" className="mt-0">
                   <RegisterForm
                     registerForm={registerForm}
-                    registerMutation={registerMutation}
+                    registerMutation={RegisterMutation}
                     selectedRole={selectedRole}
                   />
                 </TabsContent>

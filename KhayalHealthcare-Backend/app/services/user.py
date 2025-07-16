@@ -16,7 +16,7 @@ class UserService:
         self.db = db
         self.collection = db.users
 
-    async def create_user(self, user_data: UserCreate) -> User:
+    async def create_user(self, user_data: UserCreate, email_verified: bool = False, phone_verified: bool = False) -> User:
         """Create a new user and notify admins"""
         # Check if username already exists
         existing_user = await self.get_user_by_username(user_data.username)
@@ -27,43 +27,52 @@ class UserService:
         existing_email = await self.get_user_by_email(user_data.email)
         if existing_email:
             raise ValueError(f"Email '{user_data.email}' is already registered")
-
+    
         # Hash password
         hashed_password = get_password_hash(user_data.password)
-
+    
         # Create user document
         user_dict = user_data.dict()
         user_dict['password'] = hashed_password
         user_dict['approval_status'] = ApprovalStatus.PENDING
         user_dict['created_at'] = datetime.utcnow()
         user_dict['updated_at'] = datetime.utcnow()
-
+        
+        # Add verification status
+        user_dict['email_verified'] = email_verified
+        user_dict['phone_verified'] = phone_verified
+        if email_verified and phone_verified:
+            user_dict['verified_at'] = datetime.utcnow()
+    
         # Add default values for subscribers
         if user_data.role == UserRole.SUBSCRIBER:
             if not user_dict.get('address'):
                 user_dict['address'] = "Default Address"
             if not user_dict.get('city'):
                 user_dict['city'] = "Default City"
-
+    
         # Pad phone number if needed
         if len(user_dict['phone']) < 10:
             user_dict['phone'] = user_dict['phone'].ljust(10, '0')
-
+    
         result = await self.collection.insert_one(user_dict)
-
+    
         # Convert ObjectId to string for Pydantic model
         user_dict['_id'] = str(result.inserted_id)
         
         # Create User object
         new_user = User(**user_dict)
         
-        # Notify admins about new registration
-        asyncio.create_task(self._notify_admins_new_registration(new_user))
-        
-        # Notify user about profile submission
-        asyncio.create_task(self._notify_user_profile_submitted(new_user))
-
+        # Only notify if verified
+        if email_verified and phone_verified:
+            # Notify admins about new registration
+            asyncio.create_task(self._notify_admins_new_registration(new_user))
+            
+            # Notify user about profile submission
+            asyncio.create_task(self._notify_user_profile_submitted(new_user))
+    
         return new_user
+
     
     async def get_user_by_email(self, email: str) -> Optional[User]:
         """Get user by email"""

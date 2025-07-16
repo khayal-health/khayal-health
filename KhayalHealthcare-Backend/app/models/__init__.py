@@ -34,6 +34,14 @@ from app.models.subscription_plan import (
     BillingInfo
 )
 
+from app.models.verification import (
+    VerificationCode,
+    VerificationType,
+    VerificationMethod,
+    VerificationStatus,
+    AccountRestriction
+)
+
 __all__ = [
     # Core models
     "User",
@@ -52,9 +60,9 @@ __all__ = [
     "CareVisitRequestStatus",
 
     # Utilities
-    "PyObjectId"
+    "PyObjectId",
     "Advertisement",
-    "AdvertisementStatus"
+    "AdvertisementStatus",
 
     "Coupon",
     "CouponUsage",
@@ -66,5 +74,12 @@ __all__ = [
     "PlanTier",
     "BillingCycle",
     "NumericValues",
-    "BillingInfo"
+    "BillingInfo",
+    
+    # Verification
+    "VerificationCode",
+    "VerificationType",
+    "VerificationMethod",
+    "VerificationStatus",
+    "AccountRestriction"
 ]

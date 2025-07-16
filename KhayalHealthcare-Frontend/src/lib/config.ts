@@ -109,4 +109,9 @@ export const API_ENDPOINTS = {
     `/api/coupons/admin/${id}/statistics`,
   COUPONS_VALIDATE: "/api/coupons/validate",
   COUPONS_APPLY: "/api/coupons/apply",
+
+  VERIFY_REGISTRATION: "/api/auth/verify-registration",
+  RESEND_CODE: "/api/auth/resend-code",
+  FORGOT_PASSWORD: "/api/auth/forgot-password",
+  RESET_PASSWORD: "/api/auth/reset-password",
 };

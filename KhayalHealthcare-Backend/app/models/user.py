@@ -92,6 +92,10 @@ class User(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+    email_verified: bool = False
+    phone_verified: bool = False
+    verified_at: Optional[datetime] = None
+
     model_config = ConfigDict(
         populate_by_name=True, 
         arbitrary_types_allowed=True,

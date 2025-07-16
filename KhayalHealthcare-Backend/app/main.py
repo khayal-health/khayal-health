@@ -6,10 +6,12 @@ import logging
 import os
 import json
 from pathlib import Path
+import asyncio
 from app.config.database import connect_to_mongo, close_mongo_connection
 from app.routers import (
     auth, user, admin, vitals, meals, orders, appointments, messages, visit_requests, advertisements, coupons, subscription_plans
 )
+from app.utils.cleanup import cleanup_expired_verifications
 
 # Set up logging
 logging.basicConfig(
