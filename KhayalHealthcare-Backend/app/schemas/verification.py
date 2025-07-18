@@ -57,6 +57,7 @@ class VerificationCodeResponse(BaseModel):
     email: str
     phone: str
     expires_in_minutes: int = 10
-    can_resend_after_minutes: int = 5
+    can_resend_after_minutes: int = 2  # Reduced from 5 to 2
+    daily_limit: int = 5  # New field
     
     model_config = ConfigDict(populate_by_name=True)

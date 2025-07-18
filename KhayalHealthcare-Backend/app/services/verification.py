@@ -1,12 +1,12 @@
 import random
 import string
 from typing import Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models.verification import (
     VerificationCode, VerificationType, VerificationMethod, 
-    VerificationStatus, AccountRestriction
+    VerificationStatus, DailyVerificationAttempt
 )
 from app.models.user import User
 from app.schemas.verification import VerificationCodeCreate
@@ -20,36 +20,59 @@ class VerificationService:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
         self.verifications = db.verification_codes
-        self.restrictions = db.account_restrictions
+        self.daily_attempts = db.daily_verification_attempts
         self.users = db.users
         
         # Configuration
         self.CODE_LENGTH = 6
         self.CODE_EXPIRY_MINUTES = 10
-        self.RESEND_COOLDOWN_MINUTES = 5
-        self.MAX_RESEND_ATTEMPTS = 3
-        self.RESTRICTION_DAYS = 4
+        self.RESEND_COOLDOWN_MINUTES = 2  # Reduced from 5 to 2 minutes
+        self.MAX_DAILY_ATTEMPTS = 5  # Maximum attempts per day
+        self.MAX_WRONG_CODE_ATTEMPTS = 5  # Maximum wrong code attempts per verification
     
     def generate_code(self) -> str:
         """Generate a 6-digit verification code"""
         return ''.join(random.choices(string.digits, k=self.CODE_LENGTH))
     
-    async def check_restrictions(self, email: str, phone: str) -> Tuple[bool, Optional[str]]:
-        """Check if the email/phone is restricted"""
-        now = datetime.utcnow()
+    async def check_daily_limit(self, email: str, phone: str, type: VerificationType) -> Tuple[bool, Optional[str], int]:
+        """Check if the user has exceeded daily limit"""
+        today = date.today()
         
-        # Check for active restrictions
-        restriction = await self.restrictions.find_one({
-            "$or": [{"email": email}, {"phone": phone}],
-            "restricted_until": {"$gt": now}
+        # Find today's attempt record
+        attempt_record = await self.daily_attempts.find_one({
+            "email": email,
+            "phone": phone,
+            "type": type,
+            "attempt_date": today
         })
         
-        if restriction:
-            restricted_until = restriction['restricted_until']
-            days_left = (restricted_until - now).days
-            return False, f"Account restricted for {days_left} more days due to excessive attempts"
+        if not attempt_record:
+            # No attempts today, create new record
+            await self.daily_attempts.insert_one({
+                "email": email,
+                "phone": phone,
+                "type": type,
+                "attempt_date": today,
+                "attempt_count": 1,
+                "last_attempt_at": datetime.utcnow()
+            })
+            return True, None, 1
         
-        return True, None
+        # Check if limit exceeded
+        if attempt_record['attempt_count'] >= self.MAX_DAILY_ATTEMPTS:
+            remaining_hours = 24 - (datetime.utcnow() - datetime.combine(today, datetime.min.time())).total_seconds() / 3600
+            return False, f"Daily limit of {self.MAX_DAILY_ATTEMPTS} attempts exceeded. Try again in {int(remaining_hours)} hours.", attempt_record['attempt_count']
+        
+        # Increment attempt count
+        await self.daily_attempts.update_one(
+            {"_id": attempt_record['_id']},
+            {
+                "$inc": {"attempt_count": 1},
+                "$set": {"last_attempt_at": datetime.utcnow()}
+            }
+        )
+        
+        return True, None, attempt_record['attempt_count'] + 1
     
     async def create_verification_code(
         self, 
@@ -58,10 +81,12 @@ class VerificationService:
     ) -> Tuple[bool, str, Optional[VerificationCode]]:
         """Create and send verification code"""
         try:
-            # Check restrictions
-            is_allowed, restriction_msg = await self.check_restrictions(data.email, data.phone)
+            # Check daily limit
+            is_allowed, limit_msg, attempt_number = await self.check_daily_limit(
+                data.email, data.phone, data.type
+            )
             if not is_allowed:
-                return False, restriction_msg, None
+                return False, limit_msg, None
             
             # Check for existing pending verification
             existing = await self.verifications.find_one({
@@ -73,19 +98,13 @@ class VerificationService:
             })
             
             if existing:
-                # Check if can resend
+                # Check cooldown period
                 last_sent = existing.get('last_sent_at', existing.get('created_at'))
                 time_since_last = datetime.utcnow() - last_sent
                 
                 if time_since_last < timedelta(minutes=self.RESEND_COOLDOWN_MINUTES):
                     minutes_left = self.RESEND_COOLDOWN_MINUTES - int(time_since_last.total_seconds() / 60)
                     return False, f"Please wait {minutes_left} minutes before requesting a new code", None
-                
-                # Check resend attempts
-                if existing.get('resend_count', 0) >= self.MAX_RESEND_ATTEMPTS:
-                    # Create restriction
-                    await self._create_restriction(data.email, data.phone, "Exceeded maximum verification attempts")
-                    return False, f"Maximum attempts exceeded. Account restricted for {self.RESTRICTION_DAYS} days", None
             
             # Generate new code
             code = self.generate_code()
@@ -124,14 +143,25 @@ class VerificationService:
                 verification_dict['_id'] = result.inserted_id
             
             # Send verification code
-            await self._send_verification_code(data.email, data.phone, code, data.type, data.method)
+            await self._send_verification_code(
+                data.email, 
+                data.phone, 
+                code, 
+                data.type, 
+                data.method,
+                attempt_number,
+                self.MAX_DAILY_ATTEMPTS - attempt_number
+            )
             
             # Convert to model
             verification_dict['_id'] = str(verification_dict['_id'])
             if verification_dict.get('user_id'):
                 verification_dict['user_id'] = str(verification_dict['user_id'])
             
-            return True, "Verification code sent successfully", VerificationCode(**verification_dict)
+            attempts_remaining = self.MAX_DAILY_ATTEMPTS - attempt_number
+            message = f"Verification code sent successfully. You have {attempts_remaining} attempts remaining today."
+            
+            return True, message, VerificationCode(**verification_dict)
             
         except Exception as e:
             logger.error(f"Error creating verification code: {str(e)}")
@@ -163,7 +193,7 @@ class VerificationService:
                     {"_id": verification['_id']},
                     {"$set": {"status": VerificationStatus.EXPIRED}}
                 )
-                return False, "Verification code has expired", None
+                return False, "Verification code has expired. Please request a new one.", None
             
             # Increment attempts
             attempts = verification.get('attempts', 0) + 1
@@ -174,10 +204,15 @@ class VerificationService:
             
             # Check code
             if verification['code'] != code:
-                if attempts >= 5:
-                    await self._create_restriction(email, phone, "Too many incorrect verification attempts")
-                    return False, "Too many incorrect attempts. Account restricted", None
-                return False, f"Invalid code. {5 - attempts} attempts remaining", None
+                remaining_attempts = self.MAX_WRONG_CODE_ATTEMPTS - attempts
+                if attempts >= self.MAX_WRONG_CODE_ATTEMPTS:
+                    # Mark as expired after max wrong attempts
+                    await self.verifications.update_one(
+                        {"_id": verification['_id']},
+                        {"$set": {"status": VerificationStatus.EXPIRED}}
+                    )
+                    return False, "Too many incorrect attempts. Please request a new code.", None
+                return False, f"Invalid code. {remaining_attempts} attempts remaining.", None
             
             # Mark as verified
             await self.verifications.update_one(
@@ -207,26 +242,15 @@ class VerificationService:
         success, message, _ = await self.create_verification_code(data)
         return success, message
     
-    async def _create_restriction(self, email: str, phone: str, reason: str):
-        """Create account restriction"""
-        restriction = {
-            "email": email,
-            "phone": phone,
-            "restriction_type": "excessive_attempts",
-            "restricted_until": datetime.utcnow() + timedelta(days=self.RESTRICTION_DAYS),
-            "reason": reason,
-            "created_at": datetime.utcnow()
-        }
-        
-        await self.restrictions.insert_one(restriction)
-    
     async def _send_verification_code(
         self, 
         email: str, 
         phone: str, 
         code: str, 
         type: VerificationType,
-        method: VerificationMethod
+        method: VerificationMethod,
+        attempt_number: int,
+        attempts_remaining: int
     ):
         """Send verification code via email and/or WhatsApp"""
         tasks = []
@@ -241,6 +265,7 @@ Welcome to Khayal Healthcare! To complete your registration, please use the foll
 Verification Code: {code}
 
 This code will expire in {self.CODE_EXPIRY_MINUTES} minutes.
+Daily attempts remaining: {attempts_remaining}
 
 If you didn't request this code, please ignore this email.
 
@@ -253,6 +278,7 @@ Khayal Healthcare Team
 Your verification code is: *{code}*
 
 This code will expire in {self.CODE_EXPIRY_MINUTES} minutes.
+Daily attempts remaining: {attempts_remaining}
 
 Don't share this code with anyone.
 
@@ -268,6 +294,7 @@ You requested to reset your password. Use this verification code:
 Verification Code: {code}
 
 This code will expire in {self.CODE_EXPIRY_MINUTES} minutes.
+Daily attempts remaining: {attempts_remaining}
 
 If you didn't request this, please ignore this email and your password will remain unchanged.
 
@@ -280,6 +307,7 @@ Khayal Healthcare Team
 Your verification code is: *{code}*
 
 This code will expire in {self.CODE_EXPIRY_MINUTES} minutes.
+Daily attempts remaining: {attempts_remaining}
 
 If you didn't request this, please ignore this message.
 
@@ -321,8 +349,15 @@ If you didn't request this, please ignore this message.
             logger.error(f"Failed to send WhatsApp to {phone}: {str(e)}")
     
     async def cleanup_expired_codes(self):
-        """Clean up expired verification codes"""
+        """Clean up expired verification codes and old daily attempt records"""
+        # Clean up expired verification codes
         await self.verifications.delete_many({
             "status": VerificationStatus.PENDING,
             "expires_at": {"$lt": datetime.utcnow()}
+        })
+        
+        # Clean up daily attempt records older than 1 day
+        yesterday = date.today() - timedelta(days=1)
+        await self.daily_attempts.delete_many({
+            "attempt_date": {"$lt": yesterday}
         })

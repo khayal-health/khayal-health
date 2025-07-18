@@ -1,7 +1,7 @@
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 from app.models.user import PyObjectId
 from bson import ObjectId
 
@@ -41,6 +41,21 @@ class VerificationCode(BaseModel):
     
     # User data for registration (stored temporarily)
     registration_data: Optional[dict] = None
+    
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str}
+    )
+
+class DailyVerificationAttempt(BaseModel):
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    email: str
+    phone: str
+    type: VerificationType
+    attempt_date: date = Field(default_factory=date.today)
+    attempt_count: int = 1
+    last_attempt_at: datetime = Field(default_factory=datetime.utcnow)
     
     model_config = ConfigDict(
         populate_by_name=True,
