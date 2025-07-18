@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from app.schemas.user import UserCreate, UserResponse, UserLogin
+from app.schemas.user import UserCreate, UserResponse, UserLogin, PasswordChange
 from app.schemas.verification import (
     VerificationCodeVerify, ResendCodeRequest, 
     PasswordResetRequest, PasswordResetVerify,
@@ -14,6 +14,10 @@ from app.config.database import get_database
 import logging
 from datetime import datetime
 from bson import ObjectId
+import asyncio 
+from app.models.user import User
+from app.utils.dependencies import get_current_user
+from app.utils.auth import verify_password, get_password_hash  
 
 router = APIRouter(
     prefix="/auth",
@@ -317,3 +321,120 @@ async def login(user_data: UserLogin, db: AsyncIOMotorDatabase = Depends(get_dat
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login error: {str(e)}"
         )
+    
+
+@router.post("/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
+    """Change password for authenticated user"""
+    try:
+        logger.info(f"Password change attempt for user: {current_user.username}")
+        
+        # Verify current password
+        if not verify_password(password_data.current_password, current_user.password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Current password is incorrect"
+            )
+        
+        # Check if new password is same as current password
+        if password_data.current_password == password_data.new_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be different from current password"
+            )
+        
+        # Hash the new password
+        new_hashed_password = get_password_hash(password_data.new_password)
+        
+        # Update the password
+        user_service = UserService(db)
+        success = await user_service.update_user_password(str(current_user.id), new_hashed_password)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update password"
+            )
+        
+        # Send notification about password change
+        asyncio.create_task(
+            _notify_password_changed(current_user.email, current_user.phone, current_user.name)
+        )
+        
+        logger.info(f"Password changed successfully for user: {current_user.username}")
+        
+        return {
+            "message": "Password changed successfully",
+            "detail": "Your password has been updated. Please log in with your new password."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password change error: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password"
+        )
+
+# Add this helper function for notifications (in the same file)
+async def _notify_password_changed(email: str, phone: str, name: str):
+    """Send notification about password change"""
+    try:
+        from app.services.notification import send_notification, send_message
+        
+        # Email notification
+        subject = "Password Changed - Khayal Healthcare"
+        email_body = f"""
+Dear {name},
+
+Your Khayal Healthcare account password has been successfully changed.
+
+If you did not make this change, please contact our support team immediately.
+
+Security Tips:
+- Never share your password with anyone
+- Use a unique password for each account
+- Enable two-factor authentication when available
+
+Best regards,
+Khayal Healthcare Security Team
+"""
+        
+        # WhatsApp notification
+        whatsapp_message = f"""🔐 *Security Alert*
+
+Dear {name},
+
+Your Khayal Healthcare password has been changed successfully.
+
+If this wasn't you, please contact support immediately!
+
+- Khayal Healthcare Security"""
+        
+        # Send notifications asynchronously
+        notification_tasks = []
+        
+        if email:
+            notification_tasks.append(
+                asyncio.get_event_loop().run_in_executor(
+                    None, send_notification, email, subject, email_body
+                )
+            )
+        
+        if phone:
+            notification_tasks.append(
+                asyncio.get_event_loop().run_in_executor(
+                    None, send_message, phone, whatsapp_message
+                )
+            )
+        
+        if notification_tasks:
+            await asyncio.gather(*notification_tasks, return_exceptions=True)
+            
+    except Exception as e:
+        logger.error(f"Error sending password change notifications: {str(e)}")

@@ -526,7 +526,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
         className="space-y-4 sm:space-y-5"
       >
         <div className="h-[350px] sm:h-[400px] lg:h-[450px] overflow-y-auto px-2 sm:px-4 space-y-4 sm:space-y-5 custom-scrollbar">
-          {/* Role Selector */}
+          {/* Role Selector - REMOVED ADMIN OPTION */}
           <FormField
             control={registerForm.control}
             name="role"
@@ -549,12 +549,6 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent className="rounded-lg sm:rounded-xl border-slate-200 bg-white/95 backdrop-blur-lg">
-                    <SelectItem
-                      value={UserRole.ADMIN}
-                      className="rounded-lg text-sm sm:text-base"
-                    >
-                      Administrator
-                    </SelectItem>
                     <SelectItem
                       value={UserRole.SUBSCRIBER}
                       className="rounded-lg text-sm sm:text-base"
@@ -904,8 +898,8 @@ export default function AuthPage() {
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [verificationState, setVerificationState] =
     useState<VerificationState | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
   const { toast } = useToast();
-  const [registerPending, setRegisterPending] = useState(false);
 
   useEffect(() => {
     if (user && !showAds) {
@@ -946,36 +940,25 @@ export default function AuthPage() {
 
   const selectedRole = registerForm.watch("role");
 
-  // Handle registration with verification
+  // Handle registration with verification - UPDATED WITH LOADING STATE
   const handleRegister = async (data: RegisterFormData) => {
-    setRegisterPending(true);
     try {
+      setIsRegistering(true);
       const response = await apiRequest("POST", API_ENDPOINTS.REGISTER, data);
 
       if (response.ok) {
-        if (data.role === UserRole.ADMIN) {
-          // For admin, no verification needed, directly success
-          toast({
-            title: "Admin account created",
-            description: "Your admin account has been created. Please login.",
-          });
-          setActiveTab("login");
-          registerForm.reset();
-        } else {
-          // For other roles, show verification
-          setVerificationState({
-            email: data.email,
-            phone: data.phone,
-            type: "registration",
-            registrationData: data,
-          });
-          setShowVerification(true);
-          toast({
-            title: "Registration initiated",
-            description:
-              "Please check your email and WhatsApp for the verification code",
-          });
-        }
+        setVerificationState({
+          email: data.email,
+          phone: data.phone,
+          type: "registration",
+          registrationData: data,
+        });
+        setShowVerification(true);
+        toast({
+          title: "Registration initiated",
+          description:
+            "Please check your email and WhatsApp for the verification code",
+        });
       }
     } catch (error: any) {
       toast({
@@ -984,11 +967,11 @@ export default function AuthPage() {
         variant: "destructive",
       });
     } finally {
-      setRegisterPending(false);
+      setIsRegistering(false);
     }
   };
 
-  // Handle verification - FIXED VERSION
+  // Handle verification
   const handleVerification = async (code: string) => {
     if (!verificationState) return;
 
@@ -1126,12 +1109,19 @@ export default function AuthPage() {
     }
   };
 
-  // Update register form to use handleRegister
+  // Update register form to use handleRegister - UPDATED WITH PROPER LOADING STATE
   const RegisterMutation = {
     mutate: handleRegister,
-    isPending: registerPending,
+    isPending: isRegistering,
     isSuccess: registerMutation.isSuccess,
   };
+
+  useEffect(() => {
+    if (RegisterMutation.isSuccess) {
+      setActiveTab("login");
+      registerForm.reset();
+    }
+  }, [RegisterMutation.isSuccess]);
 
   // Show verification form if needed
   if (showVerification && verificationState) {
@@ -1154,13 +1144,12 @@ export default function AuthPage() {
     );
   }
 
-  // Show password reset form - FIXED VERSION
   // Show password reset form after verification
   if (
     showPasswordReset &&
     verificationState?.email &&
     verificationState?.phone &&
-    verificationState?.code // Make sure we have the code
+    verificationState?.code
   ) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50 p-4">

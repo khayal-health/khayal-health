@@ -7,11 +7,12 @@ import os
 import json
 from pathlib import Path
 import asyncio
-from app.config.database import connect_to_mongo, close_mongo_connection
+from app.config.database import connect_to_mongo, close_mongo_connection, get_database
 from app.routers import (
     auth, user, admin, vitals, meals, orders, appointments, messages, visit_requests, advertisements, coupons, subscription_plans
 )
 from app.utils.cleanup import cleanup_expired_verifications
+from app.utils.initial_setup import create_default_admins  # Add this import
 
 # Set up logging
 logging.basicConfig(
@@ -36,11 +37,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add startup event to create default admins
+async def startup_event():
+    """Handle all startup tasks"""
+    # Connect to MongoDB
+    await connect_to_mongo()
+    
+    # Create default admin users if needed
+    db = await get_database()
+    await create_default_admins(db)
+
 # Database connection events
-app.add_event_handler("startup", connect_to_mongo)
+app.add_event_handler("startup", startup_event)
 app.add_event_handler("shutdown", close_mongo_connection)
 
-# Include routers
+# Include routers (rest of your router includes remain the same)
 app.include_router(auth.router, prefix="/api")
 app.include_router(user.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")

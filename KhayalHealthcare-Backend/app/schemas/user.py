@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, validator
 from typing import Optional, List
 from datetime import datetime
 from app.models.user import UserRole, ApprovalStatus, SubscriptionStatus
@@ -66,3 +66,20 @@ class SubscriptionUpdate(BaseModel):
     subscription_plans: List[str]
     subscription_expiry: datetime
     subscription_renewal_date: Optional[datetime] = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+    
+    @validator('new_password')
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters long')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if sum(c.isdigit() for c in v) < 2:
+            raise ValueError('Password must contain at least two numbers')
+        return v

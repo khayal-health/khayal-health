@@ -7,7 +7,8 @@ from app.schemas.user import (
     UserResponse,
     UserUpdate,
     Token,
-    TokenData
+    TokenData,
+    PasswordChange,
 )
 
 # Other schemas
@@ -104,4 +105,5 @@ __all__ = [
 
     "VerificationCodeCreate", "VerificationCodeVerify", "ResendCodeRequest",
     "PasswordResetRequest", "PasswordResetVerify", "VerificationCodeResponse",
+    "PasswordChange",
 ]

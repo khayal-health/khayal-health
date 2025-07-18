@@ -484,3 +484,21 @@ Thank you for your understanding.
             logger.info(f"WhatsApp notification sent to {recipient_type}")
         except Exception as e:
             logger.error(f"Failed to send WhatsApp to {recipient_type}: {str(e)}")
+
+
+    async def update_user_password(self, user_id: str, new_hashed_password: str) -> bool:
+        """Update user password"""
+        try:
+            result = await self.collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$set": {
+                        "password": new_hashed_password,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating password for user {user_id}: {str(e)}")
+            return False

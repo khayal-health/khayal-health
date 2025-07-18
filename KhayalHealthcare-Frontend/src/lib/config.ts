@@ -11,6 +11,7 @@ export const API_ENDPOINTS = {
   REGISTER: "/api/auth/register",
   LOGIN: "/api/auth/login",
   USER_ME: "/api/users/me",
+  CHANGE_PASSWORD: "/api/auth/change-password",
 
   // User endpoints
   SUBSCRIBERS: "/api/users/subscribers",

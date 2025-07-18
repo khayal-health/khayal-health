@@ -16,6 +16,8 @@ from app.utils.dependencies import (
     security
 )
 
+from app.utils.initial_setup import create_default_admins
+
 __all__ = [
     # Auth utilities
     "verify_password",
@@ -27,6 +29,9 @@ __all__ = [
     "get_current_user",
     "get_admin_user",
     "security",
+    
+    # Setup utilities
+    "create_default_admins",
 
     # Constants (use with caution)
     "SECRET_KEY",
