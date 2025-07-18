@@ -3,12 +3,21 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from whatsapp_api_client_python import API
 import re
+import os
+from dotenv import load_dotenv
 
-# Gmail SMTP configuration
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-EMAIL_ADDRESS = "khayalhealth2@gmail.com"
-EMAIL_PASSWORD = "wdde hxca nwah zzvy"    
+# Load environment variables
+load_dotenv()
+
+# Gmail SMTP configuration from environment
+SMTP_SERVER = os.getenv('SMTP_SERVER')
+SMTP_PORT = int(os.getenv('SMTP_PORT'))
+EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
+
+# WhatsApp API configuration from environment
+GREEN_API_INSTANCE_ID = os.getenv('GREEN_API_INSTANCE_ID')
+GREEN_API_TOKEN = os.getenv('GREEN_API_TOKEN')
 
 def send_notification(to_email, subject, body):
     try:
@@ -39,7 +48,7 @@ def send_notification(to_email, subject, body):
 
 
 def send_message(number, message):
-    greenAPI = API.GreenAPI("7105273045", "4b9a2e248a1a446bb36a8daf97f71a300c3660e2d7e0457486")
+    greenAPI = API.GreenAPI(GREEN_API_INSTANCE_ID, GREEN_API_TOKEN)
     
     # Format Pakistani phone number
     formatted_number = format_pakistani_number(number)
