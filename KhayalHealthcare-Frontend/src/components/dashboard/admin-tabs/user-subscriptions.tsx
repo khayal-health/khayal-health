@@ -990,7 +990,7 @@ function EditSubscriptionForm({
   const handlePlanSelection = (planIds: string[]) => {
     setSelectedPlanIds(planIds);
     // Get plan names from IDs
-    const plans = getPlansByIds(planIds);
+    const plans = getPlansByIds(planIds, []);
     const planNames = plans.map((p) => p.name);
     setFormData({ ...formData, subscription_plans: planNames });
     setTouched({ ...touched, subscription_plans: true });
@@ -1269,13 +1269,13 @@ function EditSubscriptionForm({
                 <span className="text-sm font-medium">Selected Plans:</span>
                 {selectedPlanIds.length > 0 && (
                   <Badge variant="secondary">
-                    Total: ${calculateTotalPrice(selectedPlanIds)}/month
+                    Total: ${calculateTotalPrice(selectedPlanIds, [])}/month
                   </Badge>
                 )}
               </div>
               <div className="space-y-1">
                 {selectedPlanIds.length > 0
-                  ? getPlansByIds(selectedPlanIds).map((plan) => (
+                  ? getPlansByIds(selectedPlanIds, []).map((plan) => (
                       <div
                         key={plan.id}
                         className="flex items-center gap-2 text-xs"
