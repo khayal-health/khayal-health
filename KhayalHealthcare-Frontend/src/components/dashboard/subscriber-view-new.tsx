@@ -15,6 +15,7 @@ import {
 import { HealthMonitoring } from "./subscriber-tabs/health-monitoring";
 import { FoodService } from "./subscriber-tabs/food-service";
 import { CareService } from "./subscriber-tabs/care-service";
+import { PlanSelectionModal } from "./admin-tabs/PlanSelectionModal";
 
 type ViewType = "home" | "health" | "food" | "care";
 
@@ -31,6 +32,7 @@ interface ServiceCard {
 export default function SubscriberView() {
   const { user } = useAuth();
   const [currentView, setCurrentView] = useState<ViewType>("home");
+  const [isPlanModalOpen, setPlanModalOpen] = useState(false);
   const healthMonitoring = new HealthMonitoring(user);
   const foodService = new FoodService(user);
   const careService = new CareService(user);
@@ -69,6 +71,14 @@ export default function SubscriberView() {
       stats: "On-Demand",
     },
   ];
+
+  // Open the plan selection modal if the user is approved but has no active subscription.
+  // This provides a view-only look at the available plans.
+  useEffect(() => {
+    if (user && isApproved && user.subscriptionStatus !== "active") {
+      setPlanModalOpen(true);
+    }
+  }, [user, isApproved]);
 
   // Handle browser back button
   useEffect(() => {
@@ -149,6 +159,17 @@ export default function SubscriberView() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30 dark:from-slate-950 dark:via-gray-900 dark:to-slate-950">
+      <PlanSelectionModal
+        isOpen={isPlanModalOpen}
+        onClose={() => setPlanModalOpen(false)}
+        onConfirm={() => {
+          // In this view-only context, confirm simply closes the modal.
+          // No subscription changes are made.
+          setPlanModalOpen(false);
+        }}
+        currentPlans={[]}
+        allowMultiple={true}
+      />
       <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12">
         {currentView === "home" ? (
           <div className="w-full">
