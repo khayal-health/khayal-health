@@ -905,6 +905,7 @@ export default function AuthPage() {
   const [verificationState, setVerificationState] =
     useState<VerificationState | null>(null);
   const { toast } = useToast();
+  const [registerPending, setRegisterPending] = useState(false);
 
   useEffect(() => {
     if (user && !showAds) {
@@ -947,22 +948,34 @@ export default function AuthPage() {
 
   // Handle registration with verification
   const handleRegister = async (data: RegisterFormData) => {
+    setRegisterPending(true);
     try {
       const response = await apiRequest("POST", API_ENDPOINTS.REGISTER, data);
 
       if (response.ok) {
-        setVerificationState({
-          email: data.email,
-          phone: data.phone,
-          type: "registration",
-          registrationData: data,
-        });
-        setShowVerification(true);
-        toast({
-          title: "Registration initiated",
-          description:
-            "Please check your email and WhatsApp for the verification code",
-        });
+        if (data.role === UserRole.ADMIN) {
+          // For admin, no verification needed, directly success
+          toast({
+            title: "Admin account created",
+            description: "Your admin account has been created. Please login.",
+          });
+          setActiveTab("login");
+          registerForm.reset();
+        } else {
+          // For other roles, show verification
+          setVerificationState({
+            email: data.email,
+            phone: data.phone,
+            type: "registration",
+            registrationData: data,
+          });
+          setShowVerification(true);
+          toast({
+            title: "Registration initiated",
+            description:
+              "Please check your email and WhatsApp for the verification code",
+          });
+        }
       }
     } catch (error: any) {
       toast({
@@ -970,6 +983,8 @@ export default function AuthPage() {
         description: error.message || "Could not register",
         variant: "destructive",
       });
+    } finally {
+      setRegisterPending(false);
     }
   };
 
@@ -1114,16 +1129,9 @@ export default function AuthPage() {
   // Update register form to use handleRegister
   const RegisterMutation = {
     mutate: handleRegister,
-    isPending: false,
+    isPending: registerPending,
     isSuccess: registerMutation.isSuccess,
   };
-
-  useEffect(() => {
-    if (RegisterMutation.isSuccess) {
-      setActiveTab("login");
-      registerForm.reset();
-    }
-  }, [RegisterMutation.isSuccess]);
 
   // Show verification form if needed
   if (showVerification && verificationState) {

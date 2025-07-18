@@ -7,7 +7,7 @@ import os
 import json
 from pathlib import Path
 import asyncio
-from app.config.database import connect_to_mongo, close_mongo_connection, db
+from app.config.database import connect_to_mongo, close_mongo_connection
 from app.routers import (
     auth, user, admin, vitals, meals, orders, appointments, messages, visit_requests, advertisements, coupons, subscription_plans
 )
@@ -36,6 +36,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Database connection events
+app.add_event_handler("startup", connect_to_mongo)
+app.add_event_handler("shutdown", close_mongo_connection)
+
 # Include routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(user.router, prefix="/api")
@@ -49,19 +53,6 @@ app.include_router(visit_requests.router, prefix="/api")
 app.include_router(advertisements.router, prefix="/api")
 app.include_router(coupons.router, prefix="/api")
 app.include_router(subscription_plans.router, prefix="/api")
-
-@app.on_event("startup")
-async def startup_event():
-    """Startup event handler"""
-    await connect_to_mongo()
-    # Start the cleanup task for expired verifications and daily attempt records
-    asyncio.create_task(cleanup_expired_verifications(db.database))
-    logger.info("Cleanup task started for expired verifications")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Shutdown event handler"""
-    await close_mongo_connection()
 
 @app.get("/api/health")
 def health_check():
