@@ -11,7 +11,7 @@ COPY KhayalHealthcare-Frontend/package*.json ./
 RUN npm install --force
 
 # Copy frontend source code
-COPY KhayalHealthcare-Frontend/ ./
+COPY KhayalHealthcare-Frontend/* ./
 
 # Build frontend
 RUN npm run build
