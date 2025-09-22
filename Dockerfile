@@ -2,19 +2,19 @@
 FROM node:18-alpine AS frontend-builder
 
 # Set working directory for frontend build
-WORKDIR /app/frontend
+WORKDIR /app
 
 # Copy frontend package files
-COPY KhayalHealthcare-Frontend/package*.json ./
+COPY KhayalHealthcare-Frontend/package*.json ./frontend/
 
 # Install frontend dependencies
-RUN npm install --force
+RUN cd frontend && npm install --force
 
 # Copy frontend source code
-COPY KhayalHealthcare-Frontend/* ./
+COPY KhayalHealthcare-Frontend/ ./frontend/
 
 # Build frontend
-RUN npm run build
+RUN cd frontend && npm run build
 
 # Python dependencies stage
 FROM python:3.11-slim AS python-deps
