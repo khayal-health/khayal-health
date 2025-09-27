@@ -5,7 +5,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import re
 import os
+import dotenv
 
+dotenv.load_dotenv()
 # Optional WhatsApp client
 try:
     from whatsapp_api_client_python import API

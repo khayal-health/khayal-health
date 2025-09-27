@@ -307,15 +307,21 @@ If you didn't request this, please ignore this message.
 
     async def _send_email_async(self, email: str, subject: str, body: str):
         try:
-            await send_email_async(email, subject, body, timeout=3.0)
-            logger.info(f"Verification email task completed for {email}")
+            ok = await send_email_async(email, subject, body, timeout=3.0)
+            if ok:
+                logger.info(f"Verification email sent to {email}")
+            else:
+                logger.warning(f"Verification email failed for {email}")
         except Exception as e:
             logger.error(f"Failed to send email to {email}: {str(e)}")
 
     async def _send_whatsapp_async(self, phone: str, message: str):
         try:
-            await send_whatsapp_async(phone, message, timeout=3.0)
-            logger.info(f"Verification WhatsApp task completed for {phone}")
+            ok = await send_whatsapp_async(phone, message, timeout=3.0)
+            if ok:
+                logger.info(f"Verification WhatsApp sent to {phone}")
+            else:
+                logger.warning(f"Verification WhatsApp failed for {phone}")
         except Exception as e:
             logger.error(f"Failed to send WhatsApp to {phone}: {str(e)}")
 
