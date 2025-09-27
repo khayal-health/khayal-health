@@ -1,13 +1,14 @@
 import asyncio
 import logging
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import re
 import os
+import re
+import json
+import requests
+from typing import Optional
 import dotenv
 
 dotenv.load_dotenv()
+
 # Optional WhatsApp client
 try:
     from whatsapp_api_client_python import API
@@ -15,16 +16,39 @@ try:
 except Exception:
     WHATSAPP_AVAILABLE = False
 
-# Configuration via environment (no hardcoded secrets)
-SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+# Gmail API Configuration
+GMAIL_CLIENT_ID = os.getenv('GMAIL_CLIENT_ID')
+GMAIL_CLIENT_SECRET = os.getenv('GMAIL_CLIENT_SECRET')
+GMAIL_REFRESH_TOKEN = os.getenv('GMAIL_REFRESH_TOKEN')
 EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 
 GREEN_API_INSTANCE_ID = os.getenv('GREEN_API_INSTANCE_ID')
 GREEN_API_TOKEN = os.getenv('GREEN_API_TOKEN')
 
 logger = logging.getLogger(__name__)
+
+def _get_access_token() -> str:
+    """Get Gmail access token using refresh token."""
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        'client_id': GMAIL_CLIENT_ID,
+        'client_secret': GMAIL_CLIENT_SECRET,
+        'refresh_token': GMAIL_REFRESH_TOKEN,
+        'grant_type': 'refresh_token'
+    }
+    response = requests.post(token_url, data=data)
+    response.raise_for_status()
+    return response.json()['access_token']
+
+def _create_email_message(to_email: str, subject: str, body: str) -> str:
+    """Create email message in Gmail API format."""
+    import base64
+    message = f"""From: {EMAIL_ADDRESS}
+To: {to_email}
+Subject: {subject}
+
+{body}"""
+    return base64.urlsafe_b64encode(message.encode()).decode()
 
 def send_notification(to_email: str, subject: str, body: str, timeout: float = 3.0):
     """Synchronous email send with short timeout and immediate failure on error."""
@@ -34,8 +58,6 @@ def send_notification(to_email: str, subject: str, body: str, timeout: float = 3
     except Exception as e:
         logger.error(f"Email send failed to {to_email}: {e}")
         return False
-
-
 
 def send_message(number: str, message: str, timeout: float = 3.0):
     """Synchronous WhatsApp send with short timeout and immediate failure on error."""
@@ -63,21 +85,25 @@ def format_pakistani_number(number):
         # If it doesn't match expected patterns, assume it needs 92 prefix
         return '92' + digits_only.lstrip('0')
 
-
-
 # Internal sync sender with short timeout
 def _send_email_sync(to_email: str, subject: str, body: str, timeout: float):
-    if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+    if not EMAIL_ADDRESS or not GMAIL_REFRESH_TOKEN:
         raise RuntimeError("Email credentials not configured")
-    msg = MIMEMultipart()
-    msg['From'] = EMAIL_ADDRESS
-    msg['To'] = to_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=timeout) as server:
-        server.starttls()
-        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_ADDRESS, to_email, msg.as_string())
+    
+    access_token = _get_access_token()
+    
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    
+    data = {
+        'raw': _create_email_message(to_email, subject, body)
+    }
+    
+    url = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send'
+    response = requests.post(url, headers=headers, json=data, timeout=timeout)
+    response.raise_for_status()
 
 # Internal sync WhatsApp sender
 def _send_whatsapp_sync(number: str, message: str, timeout: float):
@@ -110,4 +136,3 @@ async def send_whatsapp_async(number: str, message: str, timeout: float = 3.0):
     except Exception as e:
         logger.error(f"WhatsApp async send failed to {number}: {e}")
         return None
-
