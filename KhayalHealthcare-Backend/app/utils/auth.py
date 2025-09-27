@@ -26,12 +26,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         logger.error(f"Password verification error: {str(e)}")
         return False
 
-def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    # Check password length to prevent BCrypt 72-byte limit error
+def validate_password_length(password: str) -> str:
+    """Validate password length and return safe password"""
     if len(password.encode('utf-8')) > 72:
         raise ValueError('Password cannot be longer than 72 bytes. Please use a shorter password.')
-    return pwd_context.hash(password)
+    return password
+
+def get_password_hash(password: str) -> str:
+    """Hash a password"""
+    try:
+        # Validate password length first
+        validated_password = validate_password_length(password)
+        return pwd_context.hash(validated_password)
+    except Exception as e:
+        # Handle BCrypt specific errors
+        if "72 bytes" in str(e) or "truncate manually" in str(e):
+            raise ValueError('Password is too long. Please use a shorter password (maximum 72 bytes).')
+        raise e
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token"""

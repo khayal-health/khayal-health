@@ -2,22 +2,22 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.schemas.user import UserCreate, UserResponse, UserLogin, PasswordChange
 from app.schemas.verification import (
-    VerificationCodeVerify, ResendCodeRequest, 
+    VerificationCodeVerify, ResendCodeRequest,
     PasswordResetRequest, PasswordResetVerify,
     VerificationCodeResponse
 )
 from app.services.auth import AuthService
 from app.services.user import UserService
 from app.services.verification import VerificationService
-from app.models.verification import VerificationType, VerificationMethod
+from app.models.verification import VerificationType, VerificationMethod, VerificationStatus
 from app.config.database import get_database
 import logging
 from datetime import datetime
 from bson import ObjectId
-import asyncio 
+import asyncio
 from app.models.user import User
 from app.utils.dependencies import get_current_user
-from app.utils.auth import verify_password, get_password_hash  
+from app.utils.auth import verify_password, get_password_hash
 
 router = APIRouter(
     prefix="/auth",
@@ -51,6 +51,13 @@ async def register(user_data: UserCreate, db: AsyncIOMotorDatabase = Depends(get
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Email '{user_data.email}' is already registered. Please use a different email."
+            )
+
+        # Additional password validation before storing
+        if len(user_data.password.encode('utf-8')) > 72:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password is too long. Please use a shorter password (maximum 72 bytes)."
             )
 
         # Create verification code and store registration data
@@ -125,6 +132,14 @@ async def verify_registration(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Registration data not found. Please start registration again."
+            )
+
+        # Validate password length before creating user (in case of old registration data)
+        password = registration_data.get('password', '')
+        if len(password.encode('utf-8')) > 72:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password is too long. Please register again with a shorter password (maximum 72 bytes)."
             )
 
         # Create the user with verified status
@@ -454,3 +469,49 @@ If this wasn't you, please contact support immediately!
             
     except Exception as e:
         logger.error(f"Error sending password change notifications: {str(e)}")
+
+@router.post("/cleanup-verification-records")
+async def cleanup_verification_records(db: AsyncIOMotorDatabase = Depends(get_database)):
+    """Clean up verification records with passwords longer than 72 bytes"""
+    try:
+        verification_service = VerificationService(db)
+
+        # Find and delete verification records with long passwords
+        verifications_collection = db.verification_codes
+
+        # Find all pending verification records
+        cursor = verifications_collection.find({"status": VerificationStatus.PENDING})
+        records_to_delete = []
+        total_checked = 0
+
+        async for record in cursor:
+            total_checked += 1
+            registration_data = record.get('registration_data', {})
+            password = registration_data.get('password', '')
+
+            # Check if password is too long
+            if password and len(password.encode('utf-8')) > 72:
+                records_to_delete.append(record['_id'])
+                logger.info(f"Found verification record with long password: {record.get('email', 'unknown')} - {len(password.encode('utf-8'))} bytes")
+
+        # Delete problematic records
+        deleted_count = 0
+        if records_to_delete:
+            result = await verifications_collection.delete_many({
+                '_id': {'$in': records_to_delete}
+            })
+            deleted_count = result.deleted_count
+            logger.info(f"Deleted {deleted_count} verification records with long passwords")
+
+        return {
+            "message": f"Cleanup completed. Checked {total_checked} records, deleted {deleted_count} records with long passwords.",
+            "total_checked": total_checked,
+            "deleted_count": deleted_count
+        }
+
+    except Exception as e:
+        logger.error(f"Error during verification cleanup: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Cleanup failed. Please try again later."
+        )

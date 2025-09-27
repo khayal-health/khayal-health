@@ -28,8 +28,20 @@ class UserService:
         if existing_email:
             raise ValueError(f"Email '{user_data.email}' is already registered")
     
-        # Hash password
-        hashed_password = get_password_hash(user_data.password)
+        # Validate and hash password
+        try:
+            # Additional validation to ensure password length is within BCrypt limits
+            if len(user_data.password.encode('utf-8')) > 72:
+                raise ValueError('Password cannot be longer than 72 bytes. Please use a shorter password.')
+            if len(user_data.password) < 6:
+                raise ValueError('Password must be at least 6 characters long.')
+
+            hashed_password = get_password_hash(user_data.password)
+        except Exception as e:
+            # Handle any password-related errors
+            if "72 bytes" in str(e) or "truncate manually" in str(e):
+                raise ValueError('Password is too long. Please use a shorter password (maximum 72 bytes).')
+            raise e
     
         # Create user document
         user_dict = user_data.dict()
