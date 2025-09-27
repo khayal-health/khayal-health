@@ -4,7 +4,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models.user import CareVisitRequest, PsychologistVisitRequest, CareVisitRequestStatus, UserRole
 from app.schemas.visit_request import CareVisitRequestCreate, PsychologistVisitRequestCreate
 from datetime import datetime
-from app.services.notification import send_notification, send_message
+from app.services.notification import send_email_async, send_whatsapp_async
 import logging
 import asyncio
 
@@ -874,21 +874,17 @@ Thank you for your service.
             logger.error(f"Error in psychology status change notification: {str(e)}")
 
     async def _send_email_notification(self, email: str, subject: str, body: str, recipient_type: str):
-        """Send email notification with error handling"""
+        """Queue email notification without delaying the request."""
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, send_notification, email, subject, body
-            )
-            logger.info(f"Email notification sent to {recipient_type}")
+            asyncio.create_task(send_email_async(email, subject, body, timeout=3.0))
+            logger.info(f"Queued email notification to {recipient_type}")
         except Exception as e:
-            logger.error(f"Failed to send email to {recipient_type}: {str(e)}")
+            logger.error(f"Failed to queue email to {recipient_type}: {str(e)}")
 
     async def _send_whatsapp_notification(self, phone: str, message: str, recipient_type: str):
-        """Send WhatsApp notification with error handling"""
+        """Queue WhatsApp notification without delaying the request."""
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, send_message, phone, message
-            )
-            logger.info(f"WhatsApp notification sent to {recipient_type}")
+            asyncio.create_task(send_whatsapp_async(phone, message, timeout=3.0))
+            logger.info(f"Queued WhatsApp notification to {recipient_type}")
         except Exception as e:
-            logger.error(f"Failed to send WhatsApp to {recipient_type}: {str(e)}")
+            logger.error(f"Failed to queue WhatsApp to {recipient_type}: {str(e)}")

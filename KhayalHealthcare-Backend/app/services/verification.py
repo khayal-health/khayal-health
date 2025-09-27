@@ -10,7 +10,7 @@ from app.models.verification import (
 )
 from app.models.user import User
 from app.schemas.verification import VerificationCodeCreate
-from app.services.notification import send_notification, send_message
+from app.services.notification import send_email_async, send_whatsapp_async
 import logging
 import asyncio
 
@@ -291,66 +291,31 @@ If you didn't request this, please ignore this message.
 
 - Khayal Healthcare"""
         
-        # Send based on method with timeout handling
-        successful_methods = []
-
+        # Fire-and-forget sending; do not await to avoid delaying the request
+        scheduled_methods = []
         if method in [VerificationMethod.EMAIL, VerificationMethod.BOTH]:
-            tasks.append(
-                self._send_email_with_timeout(email, subject, email_body)
-            )
-
+            asyncio.create_task(self._send_email_async(email, subject, email_body))
+            scheduled_methods.append("email")
         if method in [VerificationMethod.WHATSAPP, VerificationMethod.BOTH]:
-            tasks.append(
-                self._send_whatsapp_with_timeout(phone, whatsapp_message)
-            )
+            asyncio.create_task(self._send_whatsapp_async(phone, whatsapp_message))
+            scheduled_methods.append("WhatsApp")
+        if scheduled_methods:
+            logger.info(f"Queued verification notifications via: {', '.join(scheduled_methods)}")
+        else:
+            logger.info("No verification notification methods selected")
+        return scheduled_methods
 
-        # Execute all tasks with timeout and collect results
-        if tasks:
-            try:
-                # Wait for all tasks with a maximum timeout of 15 seconds
-                results = await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
-                    timeout=15.0
-                )
-
-                # Check which methods succeeded
-                for i, result in enumerate(results):
-                    if not isinstance(result, Exception):
-                        if i == 0 and method in [VerificationMethod.EMAIL, VerificationMethod.BOTH]:
-                            successful_methods.append("email")
-                        elif (i == 1 and method == VerificationMethod.BOTH) or (i == 0 and method == VerificationMethod.WHATSAPP):
-                            successful_methods.append("WhatsApp")
-
-                # Log success/failure
-                if successful_methods:
-                    logger.info(f"Verification code sent successfully via: {', '.join(successful_methods)}")
-                else:
-                    logger.warning("All verification methods failed, but continuing with registration")
-
-            except asyncio.TimeoutError:
-                logger.warning("Verification sending timed out after 15 seconds, but continuing with registration")
-            except Exception as e:
-                logger.error(f"Error sending verification codes: {str(e)}, but continuing with registration")
-
-        return successful_methods
-    
     async def _send_email_async(self, email: str, subject: str, body: str):
-        """Send email asynchronously"""
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, send_notification, email, subject, body
-            )
-            logger.info(f"Verification email sent to {email}")
+            await send_email_async(email, subject, body, timeout=3.0)
+            logger.info(f"Verification email task completed for {email}")
         except Exception as e:
             logger.error(f"Failed to send email to {email}: {str(e)}")
 
     async def _send_whatsapp_async(self, phone: str, message: str):
-        """Send WhatsApp message asynchronously"""
         try:
-            await asyncio.get_event_loop().run_in_executor(
-                None, send_message, phone, message
-            )
-            logger.info(f"Verification WhatsApp sent to {phone}")
+            await send_whatsapp_async(phone, message, timeout=3.0)
+            logger.info(f"Verification WhatsApp task completed for {phone}")
         except Exception as e:
             logger.error(f"Failed to send WhatsApp to {phone}: {str(e)}")
 
