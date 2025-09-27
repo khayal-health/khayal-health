@@ -5,7 +5,7 @@ from app.models.user import UserRole, ApprovalStatus, SubscriptionStatus
 
 class UserCreate(BaseModel):
     username: str
-    email: str 
+    email: str
     password: str
     name: str
     phone: str
@@ -16,6 +16,22 @@ class UserCreate(BaseModel):
     previous_illness: Optional[str] = None
     experience: Optional[int] = None
     degree: Optional[str] = None
+
+    @validator('password')
+    def validate_password(cls, v):
+        if len(v.encode('utf-8')) > 72:
+            raise ValueError('Password cannot be longer than 72 bytes. Please use a shorter password.')
+        if len(v) < 6:
+            raise ValueError('Password must be at least 6 characters long.')
+        return v
+
+    @validator('username')
+    def validate_username(cls, v):
+        if len(v) < 3:
+            raise ValueError('Username must be at least 3 characters long.')
+        if len(v) > 50:
+            raise ValueError('Username cannot be longer than 50 characters.')
+        return v
 
 class UserLogin(BaseModel):
     username: str

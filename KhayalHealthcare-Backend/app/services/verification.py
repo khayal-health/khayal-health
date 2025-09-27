@@ -124,14 +124,20 @@ class VerificationService:
                 verification_dict['_id'] = result.inserted_id
             
             # Send verification code
-            await self._send_verification_code(data.email, data.phone, code, data.type, data.method)
-            
+            successful_methods = await self._send_verification_code(data.email, data.phone, code, data.type, data.method)
+
             # Convert to model
             verification_dict['_id'] = str(verification_dict['_id'])
             if verification_dict.get('user_id'):
                 verification_dict['user_id'] = str(verification_dict['user_id'])
-            
-            return True, "Verification code sent successfully", VerificationCode(**verification_dict)
+
+            # Provide feedback about which methods succeeded
+            if successful_methods:
+                message = f"Verification code sent successfully via {', '.join(successful_methods)}"
+            else:
+                message = "Verification code created. Please check your email and WhatsApp."
+
+            return True, message, VerificationCode(**verification_dict)
             
         except Exception as e:
             logger.error(f"Error creating verification code: {str(e)}")
@@ -221,13 +227,13 @@ class VerificationService:
         await self.restrictions.insert_one(restriction)
     
     async def _send_verification_code(
-        self, 
-        email: str, 
-        phone: str, 
-        code: str, 
+        self,
+        email: str,
+        phone: str,
+        code: str,
         type: VerificationType,
         method: VerificationMethod
-    ):
+    ) -> list:
         """Send verification code via email and/or WhatsApp"""
         tasks = []
         
@@ -285,20 +291,48 @@ If you didn't request this, please ignore this message.
 
 - Khayal Healthcare"""
         
-        # Send based on method
+        # Send based on method with timeout handling
+        successful_methods = []
+
         if method in [VerificationMethod.EMAIL, VerificationMethod.BOTH]:
             tasks.append(
-                self._send_email_async(email, subject, email_body)
+                self._send_email_with_timeout(email, subject, email_body)
             )
-        
+
         if method in [VerificationMethod.WHATSAPP, VerificationMethod.BOTH]:
             tasks.append(
-                self._send_whatsapp_async(phone, whatsapp_message)
+                self._send_whatsapp_with_timeout(phone, whatsapp_message)
             )
-        
-        # Execute all tasks
+
+        # Execute all tasks with timeout and collect results
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                # Wait for all tasks with a maximum timeout of 15 seconds
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=15.0
+                )
+
+                # Check which methods succeeded
+                for i, result in enumerate(results):
+                    if not isinstance(result, Exception):
+                        if i == 0 and method in [VerificationMethod.EMAIL, VerificationMethod.BOTH]:
+                            successful_methods.append("email")
+                        elif (i == 1 and method == VerificationMethod.BOTH) or (i == 0 and method == VerificationMethod.WHATSAPP):
+                            successful_methods.append("WhatsApp")
+
+                # Log success/failure
+                if successful_methods:
+                    logger.info(f"Verification code sent successfully via: {', '.join(successful_methods)}")
+                else:
+                    logger.warning("All verification methods failed, but continuing with registration")
+
+            except asyncio.TimeoutError:
+                logger.warning("Verification sending timed out after 15 seconds, but continuing with registration")
+            except Exception as e:
+                logger.error(f"Error sending verification codes: {str(e)}, but continuing with registration")
+
+        return successful_methods
     
     async def _send_email_async(self, email: str, subject: str, body: str):
         """Send email asynchronously"""
@@ -309,7 +343,7 @@ If you didn't request this, please ignore this message.
             logger.info(f"Verification email sent to {email}")
         except Exception as e:
             logger.error(f"Failed to send email to {email}: {str(e)}")
-    
+
     async def _send_whatsapp_async(self, phone: str, message: str):
         """Send WhatsApp message asynchronously"""
         try:
@@ -319,6 +353,36 @@ If you didn't request this, please ignore this message.
             logger.info(f"Verification WhatsApp sent to {phone}")
         except Exception as e:
             logger.error(f"Failed to send WhatsApp to {phone}: {str(e)}")
+
+    async def _send_email_with_timeout(self, email: str, subject: str, body: str):
+        """Send email with timeout"""
+        try:
+            await asyncio.wait_for(
+                self._send_email_async(email, subject, body),
+                timeout=10.0
+            )
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Email sending to {email} timed out after 10 seconds")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to send email to {email}: {str(e)}")
+            return False
+
+    async def _send_whatsapp_with_timeout(self, phone: str, message: str):
+        """Send WhatsApp with timeout"""
+        try:
+            await asyncio.wait_for(
+                self._send_whatsapp_async(phone, message),
+                timeout=10.0
+            )
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"WhatsApp sending to {phone} timed out after 10 seconds")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to send WhatsApp to {phone}: {str(e)}")
+            return False
     
     async def cleanup_expired_codes(self):
         """Clean up expired verification codes"""

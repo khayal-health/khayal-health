@@ -28,6 +28,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     """Hash a password"""
+    # Check password length to prevent BCrypt 72-byte limit error
+    if len(password.encode('utf-8')) > 72:
+        raise ValueError('Password cannot be longer than 72 bytes. Please use a shorter password.')
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):

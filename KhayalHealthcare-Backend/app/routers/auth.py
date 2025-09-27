@@ -34,7 +34,7 @@ async def register(user_data: UserCreate, db: AsyncIOMotorDatabase = Depends(get
         logger.info(f"Registration attempt for username: {user_data.username}")
         user_service = UserService(db)
         verification_service = VerificationService(db)
-        
+
         # Check if username exists
         existing_user = await user_service.get_user_by_username(user_data.username)
         if existing_user:
@@ -43,7 +43,7 @@ async def register(user_data: UserCreate, db: AsyncIOMotorDatabase = Depends(get
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Username '{user_data.username}' is already taken. Please choose a different username."
             )
-        
+
         # Check if email exists
         existing_email = await user_service.get_user_by_email(user_data.email)
         if existing_email:
@@ -52,7 +52,7 @@ async def register(user_data: UserCreate, db: AsyncIOMotorDatabase = Depends(get
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Email '{user_data.email}' is already registered. Please use a different email."
             )
-        
+
         # Create verification code and store registration data
         from app.schemas.verification import VerificationCodeCreate
         verification_data = VerificationCodeCreate(
@@ -63,30 +63,38 @@ async def register(user_data: UserCreate, db: AsyncIOMotorDatabase = Depends(get
             method=VerificationMethod.BOTH,
             registration_data=user_data.dict()
         )
-        
+
         success, message, verification = await verification_service.create_verification_code(verification_data)
-        
+
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=message
             )
-        
+
         return VerificationCodeResponse(
-            message="Verification code sent to your email and WhatsApp",
+            message="Verification code sent. Please check your email and WhatsApp for the code.",
             email=user_data.email,
             phone=user_data.phone,
             expires_in_minutes=10,
             can_resend_after_minutes=5
         )
-    
+
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors (like password length)
+        logger.warning(f"Validation error during registration: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         logger.error(f"Registration error: {str(e)}", exc_info=True)
+        # Don't expose internal errors to users
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during registration: {str(e)}"
+            detail="Registration failed. Please try again later."
         )
 
 @router.post("/verify-registration", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -98,7 +106,7 @@ async def verify_registration(
     try:
         verification_service = VerificationService(db)
         user_service = UserService(db)
-        
+
         # Verify the code
         success, message, registration_data = await verification_service.verify_code(
             verification_data.email,
@@ -106,36 +114,44 @@ async def verify_registration(
             verification_data.code,
             verification_data.type
         )
-        
+
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=message
             )
-        
+
         if not registration_data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Registration data not found. Please start registration again."
             )
-        
+
         # Create the user with verified status
         user_create = UserCreate(**registration_data)
         user = await user_service.create_user(user_create, email_verified=True, phone_verified=True)
-        
+
         logger.info(f"User registered and verified successfully: {user.id}")
-        
+
         # Convert to response model
         user_dict = user.dict(by_alias=True)
         return UserResponse(**user_dict)
-        
+
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors (like password length during user creation)
+        logger.warning(f"Validation error during verification: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         logger.error(f"Verification error: {str(e)}", exc_info=True)
+        # Don't expose internal errors to users
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during verification: {str(e)}"
+            detail="Verification failed. Please try again or restart registration."
         )
 
 @router.post("/resend-code", response_model=VerificationCodeResponse)
