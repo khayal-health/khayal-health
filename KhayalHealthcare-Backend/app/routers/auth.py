@@ -151,6 +151,35 @@ async def verify_registration(
                 detail="Password is too long. Please register again with a shorter password (maximum 72 bytes)."
             )
 
+        # Re-check for duplicates before creating user (prevent race conditions)
+        username = registration_data.get('username')
+        email = registration_data.get('email')
+        phone = registration_data.get('phone')
+        
+        existing_user = await user_service.get_user_by_username(username)
+        if existing_user:
+            logger.warning(f"Verification failed - username already exists: {username}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Username '{username}' is already taken. Please register again with a different username."
+            )
+        
+        existing_email = await user_service.get_user_by_email(email)
+        if existing_email:
+            logger.warning(f"Verification failed - email already exists: {email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Email '{email}' is already registered. Please register again with a different email."
+            )
+        
+        existing_phone = await user_service.get_user_by_phone(phone)
+        if existing_phone:
+            logger.warning(f"Verification failed - phone already exists: {phone}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Phone number '{phone}' is already registered. Please register again with a different phone number."
+            )
+
         # Create the user with verified status
         user_create = UserCreate(**registration_data)
         user = await user_service.create_user(user_create, email_verified=True, phone_verified=True)

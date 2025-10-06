@@ -6,6 +6,7 @@ from app.schemas.user import UserCreate, UserUpdate
 from app.utils.auth import get_password_hash
 from datetime import datetime
 from app.services.notification import send_email_async, send_whatsapp_async
+from pymongo.errors import DuplicateKeyError
 import logging
 import asyncio
 
@@ -72,7 +73,19 @@ class UserService:
         if len(user_dict['phone']) < 10:
             user_dict['phone'] = user_dict['phone'].ljust(10, '0')
     
-        result = await self.collection.insert_one(user_dict)
+        try:
+            result = await self.collection.insert_one(user_dict)
+        except DuplicateKeyError as e:
+            # Handle database-level duplicate key errors
+            error_msg = str(e)
+            if 'username' in error_msg:
+                raise ValueError(f"Username '{user_data.username}' is already taken")
+            elif 'email' in error_msg:
+                raise ValueError(f"Email '{user_data.email}' is already registered")
+            elif 'phone' in error_msg:
+                raise ValueError(f"Phone number '{user_data.phone}' is already registered")
+            else:
+                raise ValueError("A user with these credentials already exists")
     
         # Convert ObjectId to string for Pydantic model
         user_dict['_id'] = str(result.inserted_id)
