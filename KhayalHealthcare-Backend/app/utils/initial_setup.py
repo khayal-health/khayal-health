@@ -22,19 +22,19 @@ async def create_default_admins(db: AsyncIOMotorDatabase):
         default_admins = [
             {
                 "username": "admin1",
-                "email": "khayalhealth2@gmail.com",
+                "email": "admin1@khayalhealth.com",
                 "name": "Admin One",
                 "phone": "0300000001"
             },
             {
                 "username": "admin2", 
-                "email": "khayalhealth2@gmail.com",
+                "email": "admin2@khayalhealth.com",
                 "name": "Admin Two",
                 "phone": "0300000002"
             },
             {
                 "username": "admin3",
-                "email": "khayalhealth2@gmail.com", 
+                "email": "admin3@khayalhealth.com", 
                 "name": "Admin Three",
                 "phone": "0300000003"
             }

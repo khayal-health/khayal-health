@@ -53,6 +53,15 @@ async def register(user_data: UserCreate, db: AsyncIOMotorDatabase = Depends(get
                 detail=f"Email '{user_data.email}' is already registered. Please use a different email."
             )
 
+        # Check if phone number exists
+        existing_phone = await user_service.get_user_by_phone(user_data.phone)
+        if existing_phone:
+            logger.warning(f"Registration failed - phone exists: {user_data.phone}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Phone number '{user_data.phone}' is already registered. Please use a different phone number."
+            )
+
         # Additional password validation before storing
         if len(user_data.password.encode('utf-8')) > 72:
             raise HTTPException(

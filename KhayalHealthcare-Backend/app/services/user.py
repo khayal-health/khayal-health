@@ -27,6 +27,11 @@ class UserService:
         existing_email = await self.get_user_by_email(user_data.email)
         if existing_email:
             raise ValueError(f"Email '{user_data.email}' is already registered")
+        
+        # Check if phone number already exists
+        existing_phone = await self.get_user_by_phone(user_data.phone)
+        if existing_phone:
+            raise ValueError(f"Phone number '{user_data.phone}' is already registered")
     
         # Validate and hash password
         try:
@@ -108,6 +113,14 @@ class UserService:
     async def get_user_by_username(self, username: str) -> Optional[User]:
         """Get user by username"""
         user_doc = await self.collection.find_one({"username": username})
+        if user_doc:
+            user_doc['_id'] = str(user_doc['_id'])
+            return User(**user_doc)
+        return None
+
+    async def get_user_by_phone(self, phone: str) -> Optional[User]:
+        """Get user by phone number"""
+        user_doc = await self.collection.find_one({"phone": phone})
         if user_doc:
             user_doc['_id'] = str(user_doc['_id'])
             return User(**user_doc)

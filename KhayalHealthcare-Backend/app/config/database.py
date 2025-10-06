@@ -22,6 +22,16 @@ async def connect_to_mongo():
         # Test the connection
         await db.client.admin.command('ping')
         logger.info("Successfully connected to MongoDB")
+        
+        # Create unique indexes for user fields
+        try:
+            await db.database.users.create_index("username", unique=True)
+            await db.database.users.create_index("email", unique=True)
+            await db.database.users.create_index("phone", unique=True)
+            logger.info("Successfully created unique indexes for users collection")
+        except Exception as idx_error:
+            logger.warning(f"Could not create indexes (may already exist): {idx_error}")
+            
     except Exception as e:
         logger.error(f"Failed to connect to MongoDB: {e}")
         raise e
